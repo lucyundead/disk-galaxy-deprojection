@@ -38,3 +38,17 @@ The benchmark writes:
 - `outputs/milestone1_synthetic/summary_residual_mdn.pt`
 - `outputs/milestone1_synthetic/normalization.npz`
 - `outputs/milestone1_synthetic/metrics.json`
+
+## Milestone 2 Cluster TNG50 Ingestion
+
+Milestone 2 runs TNG-facing work on the remote cluster through the existing HPC
+wrapper at /home/lucyundead/codex/hpc-agent/hpc.
+
+    python scripts/cluster_dgdp.py sync
+    python scripts/cluster_dgdp.py check-env
+    python scripts/cluster_dgdp.py reproduce-milestone1
+    python scripts/cluster_dgdp.py run-tng50
+    python scripts/cluster_dgdp.py fetch-tng50
+
+The cluster workflow keeps full TNG50 snapshots remote and fetches only compact
+artifacts under outputs/tng50_milestone2/.

@@ -8,6 +8,60 @@ from pathlib import Path
 from dgdp.cluster import build_remote_script, load_cluster_config
 
 
+def build_tng50_remote_commands(
+    *,
+    remote_tng50_root: str,
+    remote_output_dir: str,
+    bar_catalog_path: str,
+    snapshot: int,
+    max_candidate_galaxies: int,
+    max_particles_per_galaxy: int,
+    hubble_param: float,
+) -> list[str]:
+    output_dir = shlex.quote(remote_output_dir)
+    tng_root = shlex.quote(remote_tng50_root)
+    manifest = shlex.quote(f"{remote_output_dir}/manifest.csv")
+    particles = shlex.quote(f"{remote_output_dir}/particles")
+    metrics = shlex.quote(f"{remote_output_dir}/metrics.json")
+    residual_table = shlex.quote(f"{remote_output_dir}/residual_table.npz")
+    bar_arg = f" --bar-catalog {shlex.quote(bar_catalog_path)}" if bar_catalog_path else ""
+    return [
+        f"mkdir -p {output_dir}",
+        (
+            "python scripts/build_tng50_manifest.py "
+            f"--tng-root {tng_root} "
+            f"--output {manifest} "
+            f"--snapshot {snapshot} "
+            f"--max-candidates {max_candidate_galaxies}"
+            f"{bar_arg}"
+        ),
+        (
+            "python scripts/extract_tng50_particles.py "
+            f"--tng-root {tng_root} "
+            f"--manifest {manifest} "
+            f"--output-dir {particles} "
+            f"--snapshot {snapshot} "
+            f"--max-particles-per-galaxy {max_particles_per_galaxy} "
+            f"--hubble-param {hubble_param}"
+        ),
+        (
+            "python scripts/build_tng50_benchmark.py "
+            "--config configs/milestone1.synthetic.toml "
+            f"--manifest {manifest} "
+            f"--particle-dir {particles} "
+            f"--output-dir {output_dir}"
+        ),
+        (
+            "python scripts/train_summary_residual_mdn.py "
+            f"--data {residual_table} "
+            f"--output-dir {output_dir} "
+            "--epochs 10 --hidden-dim 32 --n-components 2"
+        ),
+        f"python scripts/evaluate_summary_residual.py --run-dir {output_dir} --n-samples 32",
+        f"python -m json.tool {metrics}",
+    ]
+
+
 def build_rsync_push_command(
     *,
     project_root: Path,
@@ -17,7 +71,6 @@ def build_rsync_push_command(
     return [
         "rsync",
         "-av",
-        "--delete",
         "--exclude=.git",
         "--exclude=.pytest_cache",
         "--exclude=.ruff_cache",
@@ -67,6 +120,7 @@ def parse_args() -> argparse.Namespace:
     sub.add_parser("sync")
     sub.add_parser("check-env")
     sub.add_parser("reproduce-milestone1")
+    sub.add_parser("run-tng50")
     sub.add_parser("fetch-tng50")
     run_parser = sub.add_parser("run")
     run_parser.add_argument("remote_command", nargs="+")
@@ -101,6 +155,20 @@ def main() -> int:
                 f"python scripts/evaluate_summary_residual.py --run-dir {cfg.remote_milestone1_output_dir}",
                 f"python -m json.tool {cfg.remote_milestone1_output_dir}/metrics.json",
             ],
+        )
+
+    if args.command == "run-tng50":
+        return run_remote(
+            args.config,
+            build_tng50_remote_commands(
+                remote_tng50_root=cfg.remote_tng50_root,
+                remote_output_dir=cfg.remote_output_dir,
+                bar_catalog_path=cfg.bar_catalog_path,
+                snapshot=cfg.snapshot,
+                max_candidate_galaxies=cfg.max_candidate_galaxies,
+                max_particles_per_galaxy=cfg.max_particles_per_galaxy,
+                hubble_param=cfg.hubble_param,
+            ),
         )
 
     if args.command == "fetch-tng50":

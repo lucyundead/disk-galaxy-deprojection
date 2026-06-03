@@ -4,6 +4,7 @@ from scripts.cluster_dgdp import (
     build_remote_command,
     build_rsync_fetch_command,
     build_rsync_push_command,
+    build_tng50_remote_commands,
 )
 
 
@@ -19,6 +20,7 @@ def test_build_rsync_push_command_excludes_large_paths():
     assert "--exclude=.git" in cmd
     assert "--exclude=.venv" in cmd
     assert "--exclude=outputs" in cmd
+    assert "--delete" not in cmd
     assert "/local/dgdp/" in joined
     assert "gravity-login01:/home/zli/disk-galaxy-deprojection/" in joined
 
@@ -40,3 +42,23 @@ def test_build_remote_command_preserves_semicolon_token_boundary():
     command = build_remote_command(["echo", "ok; rm -rf outputs/tmp"])
 
     assert command == "echo 'ok; rm -rf outputs/tmp'"
+
+
+def test_build_tng50_remote_commands_include_manifest_extract_train_eval():
+    commands = build_tng50_remote_commands(
+        remote_tng50_root="/home/cossim/IllustrisTNG/TNG50-1",
+        remote_output_dir="outputs/tng50_milestone2",
+        bar_catalog_path="",
+        snapshot=99,
+        max_candidate_galaxies=4,
+        max_particles_per_galaxy=1000,
+        hubble_param=0.6774,
+    )
+    text = "\n".join(commands)
+
+    assert "scripts/build_tng50_manifest.py" in text
+    assert "scripts/extract_tng50_particles.py" in text
+    assert "scripts/build_tng50_benchmark.py" in text
+    assert "scripts/train_summary_residual_mdn.py" in text
+    assert "scripts/evaluate_summary_residual.py" in text
+    assert "--snapshot 99" in text
