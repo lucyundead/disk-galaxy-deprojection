@@ -1,0 +1,13 @@
+hpc_wrapper = "/home/lucyundead/codex/hpc-agent/hpc"
+cluster_host = "gravity-login01"
+remote_project_root = "/home/zli/disk-galaxy-deprojection"
+remote_tng50_root = "/home/cossim/IllustrisTNG/TNG50-1"
+conda_env = "paicos-conda"
+remote_milestone1_output_dir = "outputs/cluster_milestone1"
+remote_output_dir = "outputs/tng50_milestone2"
+local_fetch_dir = "outputs/tng50_milestone2"
+bar_catalog_path = ""
+snapshot = 99
+hubble_param = 0.6774
+max_candidate_galaxies = 24
+max_particles_per_galaxy = 80000
