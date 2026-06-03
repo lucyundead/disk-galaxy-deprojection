@@ -33,4 +33,5 @@ def test_build_remote_script_activates_environment_and_project():
     assert "source /home/zli/.bashrc" in script
     assert "conda activate paicos-conda" in script
     assert "cd /home/zli/disk-galaxy-deprojection" in script
+    assert 'export PYTHONPATH="$PWD/src:${PYTHONPATH:-}"' in script
     assert "python -c \"print('ok')\"" in script

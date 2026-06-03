@@ -64,6 +64,7 @@ def build_remote_script(
         "source /home/zli/.bashrc",
         f"conda activate {conda_env}",
         f"cd {remote_project_root}",
+        'export PYTHONPATH="$PWD/src:${PYTHONPATH:-}"',
         *commands,
         "exit",
     ]
