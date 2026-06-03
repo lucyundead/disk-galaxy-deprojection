@@ -52,3 +52,5 @@ wrapper at /home/lucyundead/codex/hpc-agent/hpc.
 
 The cluster workflow keeps full TNG50 snapshots remote and fetches only compact
 artifacts under outputs/tng50_milestone2/.
+If local `rsync` is unavailable, the project CLI falls back to archive transfer
+through the HPC wrapper and does not delete remote files.

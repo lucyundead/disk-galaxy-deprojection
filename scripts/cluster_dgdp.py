@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import inspect
 import shlex
 import shutil
 import subprocess
@@ -159,7 +160,10 @@ def _safe_extract_archive(archive_path: Path, destination: Path) -> None:
             target = (destination / member.name).resolve()
             if not target.is_relative_to(destination):
                 raise RuntimeError(f"unsafe archive member path: {member.name}")
-        archive.extractall(destination)
+        if "filter" in inspect.signature(archive.extractall).parameters:
+            archive.extractall(destination, filter="data")
+        else:
+            archive.extractall(destination)
 
 
 def run_archive_fetch(config_path: Path, project_root: Path) -> int:

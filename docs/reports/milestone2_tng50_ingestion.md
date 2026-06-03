@@ -2,7 +2,8 @@
 
 ## Status
 
-TNG50 ingestion pipeline implemented. Awaiting remote cluster execution.
+TNG50 ingestion pipeline implemented and executed on the remote cluster through
+`/home/lucyundead/codex/hpc-agent/hpc shell`.
 
 ## Pipeline Overview
 
@@ -18,12 +19,47 @@ TNG50 ingestion pipeline implemented. Awaiting remote cluster execution.
 - Residual table: outputs/tng50_milestone2/residual_table.npz
 - Metrics: outputs/tng50_milestone2/metrics.json
 
-The first run uses a tiny selected sample and is intended to validate ingestion,
-not to make a scientific performance claim.
+- Candidate rows: 24
+- Compact stellar particle files written remotely: 24
+- `baseline_mae`: 1914679168.0
+- `corrected_mae`: 368521838592.0
+- `coverage_68`: 0.31
+- `n_test`: 5
+
+This first TNG50 run validates ingestion and benchmark wiring only. It is not a
+scientific performance claim: the sample is selected from massive central
+subhalos by group-catalog cuts, not yet from a barred-galaxy catalog; each
+galaxy is truncated to at most 80000 stellar particles; and the MDN was trained
+for only 10 epochs.
+
+## Cluster Verification
+
+- `python scripts/cluster_dgdp.py sync`: passed using archive fallback because
+  local `rsync` is unavailable in WSL.
+- `python scripts/cluster_dgdp.py check-env`: passed in `paicos-conda` for
+  `numpy`, `pandas`, `h5py`, and `torch`.
+- `python scripts/cluster_dgdp.py reproduce-milestone1`: passed.
+  - `baseline_mae`: 589892416.0
+  - `corrected_mae`: 431299584.0
+  - `coverage_68`: 0.7291666666666666
+  - `n_test`: 12
+- `python scripts/cluster_dgdp.py run-tng50`: passed.
+- `python scripts/cluster_dgdp.py fetch-tng50`: passed and fetched compact
+  outputs locally, excluding remote particle files.
+
+The remote TNG50-1 group catalog was inspected directly on 2026-06-03 under
+`/home/cossim/IllustrisTNG/TNG50-1/groups_099`. Empty group-catalog chunks omit
+some datasets, so the reader skips empty chunks.
 
 ## Remote Commands
 
-
+```bash
+python scripts/cluster_dgdp.py sync
+python scripts/cluster_dgdp.py check-env
+python scripts/cluster_dgdp.py reproduce-milestone1
+python scripts/cluster_dgdp.py run-tng50
+python scripts/cluster_dgdp.py fetch-tng50
+```
 
 ## Files Created
 
@@ -35,3 +71,12 @@ not to make a scientific performance claim.
 - scripts/build_tng50_benchmark.py - Remote benchmark builder
 - scripts/cluster_dgdp.py - Cluster CLI (expanded with run-tng50)
 - configs/milestone2.cluster.toml - Cluster configuration
+
+## Next Decisions
+
+- Replace group-catalog-only candidates with the downloaded kinematic
+  morphology/bar catalog once its schema is inspected.
+- Reduce the mismatch between TNG particles and Milestone 1 synthetic summaries
+  before interpreting corrected MAE.
+- Move from this summary residual smoke test toward the Milestone 2 coarse 3D
+  target only after the barred sample and target definition are fixed.
