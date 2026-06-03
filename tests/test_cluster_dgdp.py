@@ -1,6 +1,10 @@
 from pathlib import Path
 
-from scripts.cluster_dgdp import build_rsync_fetch_command, build_rsync_push_command
+from scripts.cluster_dgdp import (
+    build_remote_command,
+    build_rsync_fetch_command,
+    build_rsync_push_command,
+)
 
 
 def test_build_rsync_push_command_excludes_large_paths():
@@ -30,3 +34,9 @@ def test_build_rsync_fetch_command_fetches_only_outputs():
     joined = " ".join(cmd)
     assert "gravity-login01:/home/zli/disk-galaxy-deprojection/outputs/tng50_milestone2/" in joined
     assert "outputs/tng50_milestone2/" in joined
+
+
+def test_build_remote_command_preserves_semicolon_token_boundary():
+    command = build_remote_command(["echo", "ok; rm -rf outputs/tmp"])
+
+    assert command == "echo 'ok; rm -rf outputs/tmp'"

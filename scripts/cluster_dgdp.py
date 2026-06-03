@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -42,6 +43,10 @@ def build_rsync_fetch_command(
         f"{cluster_host}:{remote_project_root}/{remote_output_dir}/",
         f"{local_fetch_dir}/",
     ]
+
+
+def build_remote_command(tokens: list[str]) -> str:
+    return shlex.join(tokens)
 
 
 def run_remote(config_path: Path, commands: list[str]) -> int:
@@ -109,7 +114,7 @@ def main() -> int:
         return subprocess.run(cmd, check=False).returncode
 
     if args.command == "run":
-        return run_remote(args.config, [" ".join(args.remote_command)])
+        return run_remote(args.config, [build_remote_command(args.remote_command)])
 
     raise RuntimeError(f"unknown command {args.command}")
 
