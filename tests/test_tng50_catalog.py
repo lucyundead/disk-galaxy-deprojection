@@ -51,6 +51,21 @@ def test_read_group_catalog_keeps_global_central_ids(tmp_path):
     assert catalog.central_subhalo_ids.tolist() == [0, 4]
 
 
+def test_read_group_catalog_skips_empty_chunks(tmp_path):
+    group_dir = tmp_path / "groups_099"
+    group_dir.mkdir()
+    _write_group_chunk(group_dir / "fof_subhalo_tab_099.0.hdf5", [0], 0)
+    with h5py.File(group_dir / "fof_subhalo_tab_099.1.hdf5", "w") as handle:
+        handle.create_group("Header").attrs["HubbleParam"] = 0.6774
+        handle.create_group("Group")
+        handle.create_group("Subhalo")
+
+    catalog = read_group_catalog(group_dir, snapshot=99)
+
+    assert catalog.subhalo_len_type.shape == (3, 6)
+    assert catalog.central_subhalo_ids.tolist() == [0]
+
+
 def test_build_candidate_manifest_filters_centrals_and_particle_count(tmp_path):
     group_dir = tmp_path / "groups_099"
     group_dir.mkdir()

@@ -45,13 +45,16 @@ def read_group_catalog(group_dir: Path, *, snapshot: int = 99) -> TNG50GroupCata
     for path in files:
         with h5py.File(path, "r") as handle:
             hubble = float(handle["Header"].attrs.get("HubbleParam", hubble))
-            group_first_sub = np.asarray(handle["Group/GroupFirstSub"], dtype=np.int64)
-            subhalo_len = np.asarray(handle["Subhalo/SubhaloLenType"], dtype=np.int64)
-            valid = group_first_sub[group_first_sub >= 0]
-            if valid.size and int(valid.max()) < subhalo_len.shape[0]:
-                valid = valid + subhalo_offset
-            central_ids.append(valid)
+            if "SubhaloLenType" not in handle["Subhalo"]:
+                continue
 
+            subhalo_len = np.asarray(handle["Subhalo/SubhaloLenType"], dtype=np.int64)
+            if "GroupFirstSub" in handle["Group"]:
+                group_first_sub = np.asarray(handle["Group/GroupFirstSub"], dtype=np.int64)
+                valid = group_first_sub[group_first_sub >= 0]
+                if valid.size and int(valid.max()) < subhalo_len.shape[0]:
+                    valid = valid + subhalo_offset
+                central_ids.append(valid)
             len_parts.append(subhalo_len)
             mass_parts.append(np.asarray(handle["Subhalo/SubhaloMassType"], dtype=np.float64))
             pos_parts.append(np.asarray(handle["Subhalo/SubhaloPos"], dtype=np.float64))
