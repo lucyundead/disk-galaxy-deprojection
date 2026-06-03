@@ -167,7 +167,7 @@ def parse_args() -> argparse.Namespace:
     sub.add_parser("run-tng50")
     sub.add_parser("fetch-tng50")
     run_parser = sub.add_parser("run")
-    run_parser.add_argument("remote_command", nargs="+")
+    run_parser.add_argument("remote_command", nargs=argparse.REMAINDER)
     return parser.parse_args()
 
 
@@ -228,6 +228,8 @@ def main() -> int:
         return subprocess.run(cmd, check=False).returncode
 
     if args.command == "run":
+        if not args.remote_command:
+            raise RuntimeError("run requires a remote command")
         return run_remote(args.config, [build_remote_command(args.remote_command)])
 
     raise RuntimeError(f"unknown command {args.command}")
