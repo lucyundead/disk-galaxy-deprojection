@@ -142,6 +142,59 @@ def run_archive_sync(config_path: Path, project_root: Path) -> int:
     return int(proc.returncode)
 
 
+def _extract_encoded_archive(output: str) -> bytes:
+    lines = output.splitlines()
+    try:
+        start = lines.index("DGDP_FETCH_BEGIN") + 1
+        end = lines.index("DGDP_FETCH_END")
+    except ValueError as exc:
+        raise RuntimeError("fetch archive markers were not found") from exc
+    return base64.b64decode("".join(lines[start:end]))
+
+
+def _safe_extract_archive(archive_path: Path, destination: Path) -> None:
+    destination = destination.resolve()
+    with tarfile.open(archive_path, "r:gz") as archive:
+        for member in archive.getmembers():
+            target = (destination / member.name).resolve()
+            if not target.is_relative_to(destination):
+                raise RuntimeError(f"unsafe archive member path: {member.name}")
+        archive.extractall(destination)
+
+
+def run_archive_fetch(config_path: Path, project_root: Path) -> int:
+    cfg = load_cluster_config(config_path)
+    remote_output_dir = shlex.quote(cfg.remote_output_dir)
+    particle_exclude = shlex.quote(f"{cfg.remote_output_dir}/particles")
+    script = "\n".join(
+        [
+            "set -e",
+            f"cd {shlex.quote(cfg.remote_project_root)}",
+            "echo DGDP_FETCH_BEGIN",
+            f"tar -czf - --exclude={particle_exclude} {remote_output_dir} | base64",
+            "echo DGDP_FETCH_END",
+            "exit",
+        ]
+    )
+    proc = subprocess.run(
+        [str(cfg.hpc_wrapper), "shell"],
+        input=script + "\n",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        print(proc.stdout, end="")
+        print(proc.stderr, end="")
+        return int(proc.returncode)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        archive_path = Path(tmp) / "dgdp_fetch.tar.gz"
+        archive_path.write_bytes(_extract_encoded_archive(proc.stdout))
+        _safe_extract_archive(archive_path, project_root)
+    return 0
+
+
 def build_remote_command(tokens: list[str]) -> str:
     return shlex.join(tokens)
 
@@ -218,6 +271,8 @@ def main() -> int:
         )
 
     if args.command == "fetch-tng50":
+        if shutil.which("rsync") is None:
+            return run_archive_fetch(args.config, project_root)
         Path(cfg.local_fetch_dir).mkdir(parents=True, exist_ok=True)
         cmd = build_rsync_fetch_command(
             cluster_host=cfg.cluster_host,

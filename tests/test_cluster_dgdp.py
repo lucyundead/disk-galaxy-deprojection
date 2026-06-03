@@ -2,6 +2,7 @@ import tarfile
 from pathlib import Path
 
 from scripts.cluster_dgdp import (
+    _extract_encoded_archive,
     build_remote_command,
     build_rsync_fetch_command,
     build_rsync_push_command,
@@ -61,6 +62,13 @@ def test_write_sync_archive_includes_lightweight_files(tmp_path):
     assert "src/module.py" in names
     assert "outputs/large.dat" not in names
     assert "src/__pycache__/module.pyc" not in names
+
+
+def test_extract_encoded_archive_ignores_wrapper_noise():
+    payload = "aGVsbG8="
+    output = f"warning before\nDGDP_FETCH_BEGIN\n{payload}\nDGDP_FETCH_END\nwarning after\n"
+
+    assert _extract_encoded_archive(output) == b"hello"
 
 
 def test_build_remote_command_preserves_semicolon_token_boundary():
