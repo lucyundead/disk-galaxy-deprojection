@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import shlex
+import shutil
 import subprocess
+import tarfile
+import tempfile
 from pathlib import Path
 
-from dgdp.cluster import build_remote_script, load_cluster_config
+from dgdp.cluster import build_remote_script, load_cluster_config, sync_include_paths
 
 
 def build_tng50_remote_commands(
@@ -98,6 +102,46 @@ def build_rsync_fetch_command(
     ]
 
 
+def _sync_tar_filter(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
+    path = Path(info.name)
+    if any(part in {".pytest_cache", ".ruff_cache", "__pycache__"} for part in path.parts):
+        return None
+    if path.suffix == ".pyc":
+        return None
+    return info
+
+
+def write_sync_archive(project_root: Path, archive_path: Path) -> None:
+    with tarfile.open(archive_path, "w:gz") as archive:
+        for rel_path in sync_include_paths():
+            path = project_root / rel_path
+            if path.exists():
+                archive.add(path, arcname=rel_path, filter=_sync_tar_filter)
+
+
+def run_archive_sync(config_path: Path, project_root: Path) -> int:
+    cfg = load_cluster_config(config_path)
+    with tempfile.TemporaryDirectory() as tmp:
+        archive_path = Path(tmp) / "dgdp_sync.tar.gz"
+        write_sync_archive(project_root, archive_path)
+        encoded = base64.b64encode(archive_path.read_bytes()).decode("ascii")
+
+    remote_archive = f"{cfg.remote_project_root}/.dgdp_sync_archive.tar.gz"
+    script = "\n".join(
+        [
+            "set -e",
+            f"mkdir -p {shlex.quote(cfg.remote_project_root)}",
+            f"base64 -d > {shlex.quote(remote_archive)} <<'DGDP_ARCHIVE'",
+            encoded,
+            "DGDP_ARCHIVE",
+            f"tar -xzf {shlex.quote(remote_archive)} -C {shlex.quote(cfg.remote_project_root)}",
+            "exit",
+        ]
+    )
+    proc = subprocess.run([str(cfg.hpc_wrapper), "shell"], input=script + "\n", text=True, check=False)
+    return int(proc.returncode)
+
+
 def build_remote_command(tokens: list[str]) -> str:
     return shlex.join(tokens)
 
@@ -133,6 +177,8 @@ def main() -> int:
     project_root = Path(__file__).resolve().parents[1]
 
     if args.command == "sync":
+        if shutil.which("rsync") is None:
+            return run_archive_sync(args.config, project_root)
         cmd = build_rsync_push_command(
             project_root=project_root,
             cluster_host=cfg.cluster_host,

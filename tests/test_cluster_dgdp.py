@@ -1,3 +1,4 @@
+import tarfile
 from pathlib import Path
 
 from scripts.cluster_dgdp import (
@@ -5,6 +6,7 @@ from scripts.cluster_dgdp import (
     build_rsync_fetch_command,
     build_rsync_push_command,
     build_tng50_remote_commands,
+    write_sync_archive,
 )
 
 
@@ -36,6 +38,29 @@ def test_build_rsync_fetch_command_fetches_only_outputs():
     joined = " ".join(cmd)
     assert "gravity-login01:/home/zli/disk-galaxy-deprojection/outputs/tng50_milestone2/" in joined
     assert "outputs/tng50_milestone2/" in joined
+
+
+def test_write_sync_archive_includes_lightweight_files(tmp_path):
+    project_root = tmp_path / "project"
+    project_root.mkdir()
+    (project_root / "README.md").write_text("hello", encoding="utf-8")
+    (project_root / "src").mkdir()
+    (project_root / "src" / "module.py").write_text("x = 1\n", encoding="utf-8")
+    (project_root / "outputs").mkdir()
+    (project_root / "outputs" / "large.dat").write_text("skip", encoding="utf-8")
+    (project_root / "src" / "__pycache__").mkdir()
+    (project_root / "src" / "__pycache__" / "module.pyc").write_bytes(b"skip")
+    archive = tmp_path / "sync.tar.gz"
+
+    write_sync_archive(project_root, archive)
+
+    with tarfile.open(archive, "r:gz") as handle:
+        names = set(handle.getnames())
+
+    assert "README.md" in names
+    assert "src/module.py" in names
+    assert "outputs/large.dat" not in names
+    assert "src/__pycache__/module.pyc" not in names
 
 
 def test_build_remote_command_preserves_semicolon_token_boundary():
