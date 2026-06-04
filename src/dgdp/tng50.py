@@ -40,7 +40,11 @@ def _star_counts_by_file(files: list[Path]) -> list[int]:
     return counts
 
 
-def _read_optional_dataset(group: h5py.Group, name: str, selection: slice) -> np.ndarray | None:
+def _read_optional_dataset(
+    group: h5py.Group,
+    name: str,
+    selection: slice | np.ndarray,
+) -> np.ndarray | None:
     if name not in group:
         return None
     return np.asarray(group[name][selection])
@@ -56,42 +60,65 @@ def load_subhalo_stars_from_chunks(
     snapshot: int,
     hubble_param: float,
     max_particles: int,
+    sampling_mode: str = "stride",
 ) -> ParticleSet:
     with h5py.File(offsets_path, "r") as handle:
         start = int(handle["Subhalo/SnapByType"][subhalo_id, 4])
-    length = int(star_particle_count)
-    length = min(length, int(max_particles))
+    full_length = int(star_particle_count)
+    length = min(full_length, int(max_particles))
+    requested_indices = None
+    requested_ranges = None
+    if sampling_mode == "first" or length >= full_length:
+        requested_ranges = [(start, start + length)]
+    elif sampling_mode == "stride":
+        requested_indices = start + np.linspace(0, full_length - 1, length, dtype=np.int64)
+    elif sampling_mode == "block_stride":
+        n_blocks = min(32, length)
+        block_size = max(1, length // n_blocks)
+        relative_starts = np.linspace(0, full_length - block_size, n_blocks, dtype=np.int64)
+        requested_ranges = [
+            (start + int(relative_start), start + int(relative_start) + block_size)
+            for relative_start in relative_starts
+        ]
+    else:
+        raise ValueError(f"unknown sampling_mode: {sampling_mode}")
 
     files = _snapshot_files(snap_dir, snapshot)
     counts = _star_counts_by_file(files)
-    remaining_start = start
-    remaining_length = length
     coords_parts = []
     mass_parts = []
     vel_parts = []
     formation_parts = []
+    file_start = 0
 
     for path, count in zip(files, counts):
-        if remaining_start >= count:
-            remaining_start -= count
-            continue
-        if remaining_length <= 0:
+        if length <= 0:
             break
-        local_start = remaining_start
-        take = min(count - local_start, remaining_length)
-        selection = slice(local_start, local_start + take)
-        with h5py.File(path, "r") as handle:
-            stars = handle["PartType4"]
-            coords_parts.append(np.asarray(stars["Coordinates"][selection], dtype=float))
-            mass_parts.append(np.asarray(stars["Masses"][selection], dtype=float))
-            vel = _read_optional_dataset(stars, "Velocities", selection)
-            form = _read_optional_dataset(stars, "GFM_StellarFormationTime", selection)
-            if vel is not None:
-                vel_parts.append(vel.astype(float))
-            if form is not None:
-                formation_parts.append(form.astype(float))
-        remaining_length -= take
-        remaining_start = 0
+        file_end = file_start + count
+        selections: list[slice | np.ndarray] = []
+        if requested_indices is not None:
+            in_file = (requested_indices >= file_start) & (requested_indices < file_end)
+            if np.any(in_file):
+                selections.append(requested_indices[in_file] - file_start)
+        if requested_ranges is not None:
+            for global_start, global_end in requested_ranges:
+                overlap_start = max(global_start, file_start)
+                overlap_end = min(global_end, file_end)
+                if overlap_start < overlap_end:
+                    selections.append(slice(overlap_start - file_start, overlap_end - file_start))
+        if selections:
+            with h5py.File(path, "r") as handle:
+                stars = handle["PartType4"]
+                for selection in selections:
+                    coords_parts.append(np.asarray(stars["Coordinates"][selection], dtype=float))
+                    mass_parts.append(np.asarray(stars["Masses"][selection], dtype=float))
+                    vel = _read_optional_dataset(stars, "Velocities", selection)
+                    form = _read_optional_dataset(stars, "GFM_StellarFormationTime", selection)
+                    if vel is not None:
+                        vel_parts.append(vel.astype(float))
+                    if form is not None:
+                        formation_parts.append(form.astype(float))
+        file_start = file_end
 
     if not coords_parts:
         return ParticleSet(positions_kpc=np.empty((0, 3)), masses_msun=np.empty((0,)))

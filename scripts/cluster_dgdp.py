@@ -170,12 +170,18 @@ def run_archive_fetch(config_path: Path, project_root: Path) -> int:
     cfg = load_cluster_config(config_path)
     remote_output_dir = shlex.quote(cfg.remote_output_dir)
     particle_exclude = shlex.quote(f"{cfg.remote_output_dir}/particles")
+    barred_particle_exclude = shlex.quote(f"{cfg.remote_output_dir}/barred_particles_*")
     script = "\n".join(
         [
             "set -e",
             f"cd {shlex.quote(cfg.remote_project_root)}",
             "echo DGDP_FETCH_BEGIN",
-            f"tar -czf - --exclude={particle_exclude} {remote_output_dir} | base64",
+            (
+                "tar -czf - "
+                f"--exclude={particle_exclude} "
+                f"--exclude={barred_particle_exclude} "
+                f"{remote_output_dir} | base64"
+            ),
             "echo DGDP_FETCH_END",
             "exit",
         ]

@@ -12,6 +12,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--snapshot', type=int, default=99)
     parser.add_argument('--max-particles-per-galaxy', type=int, default=80000)
     parser.add_argument('--hubble-param', type=float, default=0.6774)
+    parser.add_argument('--sampling-mode', choices=('first', 'stride', 'block_stride'), default='block_stride')
     return parser.parse_args()
 def main() -> None:
     args = parse_args()
@@ -38,6 +39,7 @@ def main() -> None:
             snapshot=args.snapshot,
             hubble_param=args.hubble_param,
             max_particles=args.max_particles_per_galaxy,
+            sampling_mode=args.sampling_mode,
         )
         write_particle_set_hdf5(output_dir / f'subhalo_{subhalo_id}.hdf5', particles, subhalo_id=subhalo_id)
         wrote += 1

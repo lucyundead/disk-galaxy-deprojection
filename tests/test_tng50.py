@@ -92,6 +92,79 @@ def test_load_subhalo_stars_from_chunks_sorts_snapshot_chunks_numerically(tmp_pa
     assert particles.positions_kpc[:, 0].tolist() == [2.0, 10.0]
 
 
+def test_load_subhalo_stars_from_chunks_stride_samples_full_subhalo(tmp_path):
+    snap_dir = tmp_path / "snapdir_099"
+    snap_dir.mkdir()
+    offsets = tmp_path / "offsets_099.hdf5"
+
+    with h5py.File(offsets, "w") as handle:
+        subhalo = handle.create_group("Subhalo")
+        data = np.zeros((1, 6), dtype=np.int64)
+        subhalo["SnapByType"] = data
+
+    chunk_coords = [
+        np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]]),
+        np.array([[2.0, 0.0, 0.0], [3.0, 0.0, 0.0]]),
+        np.array([[4.0, 0.0, 0.0]]),
+    ]
+    for chunk, coords in enumerate(chunk_coords):
+        with h5py.File(snap_dir / f"snap_099.{chunk}.hdf5", "w") as handle:
+            header = handle.create_group("Header")
+            stars = handle.create_group("PartType4")
+            header.attrs["NumPart_ThisFile"] = np.array([0, 0, 0, 0, len(coords), 0])
+            stars["Coordinates"] = coords
+            stars["Masses"] = np.ones(len(coords))
+            stars["GFM_StellarFormationTime"] = np.ones(len(coords))
+
+    particles = load_subhalo_stars_from_chunks(
+        snap_dir=snap_dir,
+        offsets_path=offsets,
+        subhalo_id=0,
+        star_particle_count=5,
+        subhalo_center_ckpc_h=np.zeros(3),
+        snapshot=99,
+        hubble_param=1.0,
+        max_particles=3,
+        sampling_mode="stride",
+    )
+
+    assert particles.positions_kpc[:, 0].tolist() == [0.0, 2.0, 4.0]
+
+
+def test_load_subhalo_stars_from_chunks_block_stride_samples_full_subhalo(tmp_path):
+    snap_dir = tmp_path / "snapdir_099"
+    snap_dir.mkdir()
+    offsets = tmp_path / "offsets_099.hdf5"
+
+    with h5py.File(offsets, "w") as handle:
+        subhalo = handle.create_group("Subhalo")
+        subhalo["SnapByType"] = np.zeros((1, 6), dtype=np.int64)
+
+    coords = np.column_stack((np.arange(10, dtype=float), np.zeros((10, 2))))
+    for chunk, chunk_coords in enumerate([coords[:5], coords[5:]]):
+        with h5py.File(snap_dir / f"snap_099.{chunk}.hdf5", "w") as handle:
+            header = handle.create_group("Header")
+            stars = handle.create_group("PartType4")
+            header.attrs["NumPart_ThisFile"] = np.array([0, 0, 0, 0, len(chunk_coords), 0])
+            stars["Coordinates"] = chunk_coords
+            stars["Masses"] = np.ones(len(chunk_coords))
+            stars["GFM_StellarFormationTime"] = np.ones(len(chunk_coords))
+
+    particles = load_subhalo_stars_from_chunks(
+        snap_dir=snap_dir,
+        offsets_path=offsets,
+        subhalo_id=0,
+        star_particle_count=10,
+        subhalo_center_ckpc_h=np.zeros(3),
+        snapshot=99,
+        hubble_param=1.0,
+        max_particles=4,
+        sampling_mode="block_stride",
+    )
+
+    assert particles.positions_kpc[:, 0].tolist() == [0.0, 3.0, 6.0, 9.0]
+
+
 def test_write_particle_set_hdf5_round_trips_velocities(tmp_path):
     path = tmp_path / "compact.hdf5"
     particles = ParticleSet(
