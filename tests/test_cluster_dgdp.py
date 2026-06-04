@@ -84,6 +84,11 @@ def test_build_tng50_remote_commands_include_manifest_extract_train_eval():
         bar_catalog_path="",
         snapshot=99,
         max_candidate_galaxies=4,
+        min_star_particles=50000,
+        min_stellar_mass_msun=3162277660.1683793,
+        min_bar_strength=0.2,
+        min_bar_size_kpc=2.0,
+        split_seed=20260604,
         max_particles_per_galaxy=1000,
         hubble_param=0.6774,
     )
@@ -95,3 +100,5 @@ def test_build_tng50_remote_commands_include_manifest_extract_train_eval():
     assert "scripts/train_summary_residual_mdn.py" in text
     assert "scripts/evaluate_summary_residual.py" in text
     assert "--snapshot 99" in text
+    assert "--min-stellar-mass-msun 3162277660.1683793" in text
+    assert "--min-bar-size-kpc 2.0" in text

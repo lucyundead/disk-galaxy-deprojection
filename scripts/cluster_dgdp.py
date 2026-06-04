@@ -20,6 +20,11 @@ def build_tng50_remote_commands(
     bar_catalog_path: str,
     snapshot: int,
     max_candidate_galaxies: int,
+    min_star_particles: int,
+    min_stellar_mass_msun: float,
+    min_bar_strength: float,
+    min_bar_size_kpc: float,
+    split_seed: int,
     max_particles_per_galaxy: int,
     hubble_param: float,
 ) -> list[str]:
@@ -37,7 +42,12 @@ def build_tng50_remote_commands(
             f"--tng-root {tng_root} "
             f"--output {manifest} "
             f"--snapshot {snapshot} "
-            f"--max-candidates {max_candidate_galaxies}"
+            f"--max-candidates {max_candidate_galaxies} "
+            f"--min-star-particles {min_star_particles} "
+            f"--min-stellar-mass-msun {min_stellar_mass_msun} "
+            f"--min-bar-strength {min_bar_strength} "
+            f"--min-bar-size-kpc {min_bar_size_kpc} "
+            f"--split-seed {split_seed}"
             f"{bar_arg}"
         ),
         (
@@ -275,6 +285,11 @@ def main() -> int:
                 bar_catalog_path=cfg.bar_catalog_path,
                 snapshot=cfg.snapshot,
                 max_candidate_galaxies=cfg.max_candidate_galaxies,
+                min_star_particles=cfg.min_star_particles,
+                min_stellar_mass_msun=cfg.min_stellar_mass_msun,
+                min_bar_strength=cfg.min_bar_strength,
+                min_bar_size_kpc=cfg.min_bar_size_kpc,
+                split_seed=cfg.split_seed,
                 max_particles_per_galaxy=cfg.max_particles_per_galaxy,
                 hubble_param=cfg.hubble_param,
             ),

@@ -1,7 +1,12 @@
 import h5py
 import numpy as np
 
-from dgdp.tng50 import load_particle_set_hdf5, load_subhalo_stars_from_chunks, write_particle_set_hdf5
+from dgdp.tng50 import (
+    iter_subhalo_stars_from_chunks,
+    load_particle_set_hdf5,
+    load_subhalo_stars_from_chunks,
+    write_particle_set_hdf5,
+)
 from dgdp.types import ParticleSet
 
 
@@ -178,3 +183,40 @@ def test_write_particle_set_hdf5_round_trips_velocities(tmp_path):
 
     assert loaded.positions_kpc.shape == (2, 3)
     assert loaded.velocities_kms.shape == (2, 3)
+
+
+def test_iter_subhalo_stars_from_chunks_yields_all_formed_particles(tmp_path):
+    snap_dir = tmp_path / "snapdir_099"
+    snap_dir.mkdir()
+    offsets = tmp_path / "offsets_099.hdf5"
+
+    with h5py.File(offsets, "w") as handle:
+        subhalo = handle.create_group("Subhalo")
+        subhalo["SnapByType"] = np.zeros((1, 6), dtype=np.int64)
+
+    coords0 = np.array([[10.0, 0.0, 0.0], [11.0, 0.0, 0.0]])
+    coords1 = np.array([[12.0, 0.0, 0.0], [13.0, 0.0, 0.0]])
+    for chunk, coords in enumerate([coords0, coords1]):
+        with h5py.File(snap_dir / f"snap_099.{chunk}.hdf5", "w") as handle:
+            header = handle.create_group("Header")
+            stars = handle.create_group("PartType4")
+            header.attrs["NumPart_ThisFile"] = np.array([0, 0, 0, 0, len(coords), 0])
+            stars["Coordinates"] = coords
+            stars["Masses"] = np.ones(len(coords))
+            stars["Velocities"] = np.zeros((len(coords), 3))
+            stars["GFM_StellarFormationTime"] = np.array([1.0, -1.0])
+
+    chunks = list(
+        iter_subhalo_stars_from_chunks(
+            snap_dir=snap_dir,
+            offsets_path=offsets,
+            subhalo_id=0,
+            star_particle_count=4,
+            subhalo_center_ckpc_h=np.array([10.0, 0.0, 0.0]),
+            snapshot=99,
+            hubble_param=0.5,
+        )
+    )
+
+    positions = np.vstack([chunk.positions_kpc for chunk in chunks])
+    assert positions[:, 0].tolist() == [0.0, 4.0]

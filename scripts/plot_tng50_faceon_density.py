@@ -6,12 +6,14 @@ import html
 import math
 import struct
 import zlib
+from collections.abc import Iterable
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 import pandas as pd
 
-from dgdp.tng50 import load_particle_set_hdf5
+from dgdp.tng50 import iter_subhalo_stars_from_chunks, load_particle_set_hdf5
 from dgdp.types import ParticleSet
 
 
@@ -33,8 +35,11 @@ _INFERNO_STOPS = np.array(
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", type=Path, required=True)
-    parser.add_argument("--particle-dir", type=Path, required=True)
+    parser.add_argument("--particle-dir", type=Path, default=None)
+    parser.add_argument("--tng-root", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--snapshot", type=int, default=99)
+    parser.add_argument("--hubble-param", type=float, default=0.6774)
     parser.add_argument("--image-size", type=int, default=256)
     parser.add_argument("--radius-kpc", type=float, default=30.0)
     parser.add_argument("--normal-radius-kpc", type=float, default=30.0)
@@ -196,6 +201,86 @@ def estimate_disk_normal(particles: ParticleSet, *, radius_kpc: float) -> tuple[
     return _unit(eigenvectors[:, 0]), "minor_axis"
 
 
+def estimate_disk_normal_from_chunks(
+    chunk_factory: Callable[[], Iterable[ParticleSet]],
+    *,
+    radius_kpc: float,
+) -> tuple[np.ndarray, str]:
+    sum_mass = 0.0
+    sum_weighted_velocity = np.zeros(3, dtype=float)
+    sum_weighted_position = np.zeros(3, dtype=float)
+    sum_cross_position_velocity = np.zeros(3, dtype=float)
+    sum_covariance = np.zeros((3, 3), dtype=float)
+    n_selected = 0
+
+    for particles in chunk_factory():
+        positions = np.asarray(particles.positions_kpc, dtype=float)
+        masses = np.asarray(particles.masses_msun, dtype=float)
+        radii = np.linalg.norm(positions, axis=1)
+        mask = np.isfinite(radii) & (radii <= radius_kpc) & np.isfinite(masses) & (masses > 0.0)
+        if not np.any(mask):
+            continue
+        pos = positions[mask]
+        weight = masses[mask]
+        sum_mass += float(weight.sum())
+        sum_weighted_position += np.sum(weight[:, None] * pos, axis=0)
+        sum_covariance += (pos * weight[:, None]).T @ pos
+        n_selected += int(mask.sum())
+        if particles.velocities_kms is not None:
+            velocities = np.asarray(particles.velocities_kms, dtype=float)[mask]
+            sum_weighted_velocity += np.sum(weight[:, None] * velocities, axis=0)
+            sum_cross_position_velocity += np.sum(weight[:, None] * np.cross(pos, velocities), axis=0)
+
+    if sum_mass <= 0.0 or n_selected < 10:
+        raise ValueError("not enough particles to estimate disk normal")
+
+    if np.linalg.norm(sum_cross_position_velocity) > 0.0:
+        mean_velocity = sum_weighted_velocity / sum_mass
+        angular_momentum = sum_cross_position_velocity - np.cross(sum_weighted_position, mean_velocity)
+        if np.linalg.norm(angular_momentum) > 0.0:
+            return _unit(angular_momentum), "angular_momentum_stream"
+
+    mean_position = sum_weighted_position / sum_mass
+    covariance = sum_covariance / sum_mass - np.outer(mean_position, mean_position)
+    _, eigenvectors = np.linalg.eigh(covariance)
+    return _unit(eigenvectors[:, 0]), "minor_axis_stream"
+
+
+def surface_density_image_from_chunks(
+    chunk_factory: Callable[[], Iterable[ParticleSet]],
+    *,
+    image_size: int,
+    radius_kpc: float,
+    normal_radius_kpc: float,
+) -> tuple[np.ndarray, np.ndarray, dict[str, float | str]]:
+    normal, method = estimate_disk_normal_from_chunks(chunk_factory, radius_kpc=normal_radius_kpc)
+    x_axis, y_axis, normal = _faceon_basis(normal)
+    edges = np.linspace(-radius_kpc, radius_kpc, image_size + 1)
+    mass_grid = np.zeros((image_size, image_size), dtype=float)
+    total_particles = 0
+
+    for particles in chunk_factory():
+        positions = np.asarray(particles.positions_kpc, dtype=float)
+        xy = np.column_stack((positions @ x_axis, positions @ y_axis))
+        chunk_grid, _, _ = np.histogram2d(
+            xy[:, 1],
+            xy[:, 0],
+            bins=(edges, edges),
+            weights=particles.masses_msun,
+        )
+        mass_grid += chunk_grid
+        total_particles += len(particles.masses_msun)
+
+    return density_products_from_mass_grid(
+        mass_grid,
+        image_size=image_size,
+        radius_kpc=radius_kpc,
+        normal=normal,
+        method=method,
+        total_particles=total_particles,
+    )
+
+
 def surface_density_image(
     particles: ParticleSet,
     *,
@@ -214,6 +299,25 @@ def surface_density_image(
         bins=(edges, edges),
         weights=particles.masses_msun,
     )
+    return density_products_from_mass_grid(
+        mass_grid,
+        image_size=image_size,
+        radius_kpc=radius_kpc,
+        normal=normal,
+        method=method,
+        total_particles=len(particles.masses_msun),
+    )
+
+
+def density_products_from_mass_grid(
+    mass_grid: np.ndarray,
+    *,
+    image_size: int,
+    radius_kpc: float,
+    normal: np.ndarray,
+    method: str,
+    total_particles: int,
+) -> tuple[np.ndarray, np.ndarray, dict[str, float | str]]:
     pixel_area = (2.0 * radius_kpc / image_size) ** 2
     density = mass_grid / pixel_area
     positive = density[density > 0.0]
@@ -239,6 +343,7 @@ def surface_density_image(
         "log10_sigma_vmin": vmin,
         "log10_sigma_vmax": vmax,
         "total_mass_in_frame_msun": float(mass_grid.sum()),
+        "stellar_particles_used": int(total_particles),
     }
     return rgb, log_density, metadata
 
@@ -302,6 +407,8 @@ figcaption { font-size: 12px; color: #ccc; margin-top: 4px; }
 
 def main() -> None:
     args = parse_args()
+    if args.particle_dir is None and args.tng_root is None:
+        raise ValueError("either --particle-dir or --tng-root is required")
     manifest = pd.read_csv(args.manifest)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     images = []
@@ -314,17 +421,47 @@ def main() -> None:
 
     for row in manifest.itertuples(index=False):
         subhalo_id = int(row.subhalo_id)
-        particles = load_particle_set_hdf5(
-            args.particle_dir / f"subhalo_{subhalo_id}.hdf5",
-            length_unit_kpc=1.0,
-            mass_unit_msun=1.0,
-        )
-        rgb, log_density, metadata = surface_density_image(
-            particles,
-            image_size=args.image_size,
-            radius_kpc=args.radius_kpc,
-            normal_radius_kpc=args.normal_radius_kpc,
-        )
+        if args.tng_root is not None:
+            center = np.array(
+                [
+                    float(row.subhalo_pos_x_ckpc_h),
+                    float(row.subhalo_pos_y_ckpc_h),
+                    float(row.subhalo_pos_z_ckpc_h),
+                ]
+            )
+
+            def chunk_factory() -> Iterable[ParticleSet]:
+                return iter_subhalo_stars_from_chunks(
+                    snap_dir=args.tng_root / f"snapdir_{args.snapshot:03d}",
+                    offsets_path=args.tng_root
+                    / "postprocessing"
+                    / "offsets"
+                    / f"offsets_{args.snapshot:03d}.hdf5",
+                    subhalo_id=subhalo_id,
+                    star_particle_count=int(row.star_particles),
+                    subhalo_center_ckpc_h=center,
+                    snapshot=args.snapshot,
+                    hubble_param=args.hubble_param,
+                )
+
+            rgb, log_density, metadata = surface_density_image_from_chunks(
+                chunk_factory,
+                image_size=args.image_size,
+                radius_kpc=args.radius_kpc,
+                normal_radius_kpc=args.normal_radius_kpc,
+            )
+        else:
+            particles = load_particle_set_hdf5(
+                args.particle_dir / f"subhalo_{subhalo_id}.hdf5",
+                length_unit_kpc=1.0,
+                mass_unit_msun=1.0,
+            )
+            rgb, log_density, metadata = surface_density_image(
+                particles,
+                image_size=args.image_size,
+                radius_kpc=args.radius_kpc,
+                normal_radius_kpc=args.normal_radius_kpc,
+            )
         filename = f"subhalo_{subhalo_id}_faceon_density.png"
         title = (
             f"Subhalo {subhalo_id} | {row.split} | "

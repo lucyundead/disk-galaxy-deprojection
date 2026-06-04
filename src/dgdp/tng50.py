@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from collections.abc import Iterator
 
 import h5py
 import numpy as np
@@ -136,6 +137,54 @@ def load_subhalo_stars_from_chunks(
     positions_kpc = (coords - np.asarray(subhalo_center_ckpc_h, dtype=float)) / hubble_param
     masses_msun = masses * 1.0e10 / hubble_param
     return ParticleSet(positions_kpc=positions_kpc, masses_msun=masses_msun, velocities_kms=velocities)
+
+
+def iter_subhalo_stars_from_chunks(
+    *,
+    snap_dir: Path,
+    offsets_path: Path,
+    subhalo_id: int,
+    star_particle_count: int,
+    subhalo_center_ckpc_h: np.ndarray,
+    snapshot: int,
+    hubble_param: float,
+) -> Iterator[ParticleSet]:
+    with h5py.File(offsets_path, "r") as handle:
+        start = int(handle["Subhalo/SnapByType"][subhalo_id, 4])
+    end = start + int(star_particle_count)
+
+    file_start = 0
+    files = _snapshot_files(snap_dir, snapshot)
+    counts = _star_counts_by_file(files)
+    center = np.asarray(subhalo_center_ckpc_h, dtype=float)
+    for path, count in zip(files, counts):
+        file_end = file_start + count
+        overlap_start = max(start, file_start)
+        overlap_end = min(end, file_end)
+        if overlap_start >= overlap_end:
+            file_start = file_end
+            continue
+
+        selection = slice(overlap_start - file_start, overlap_end - file_start)
+        with h5py.File(path, "r") as handle:
+            stars = handle["PartType4"]
+            coords = np.asarray(stars["Coordinates"][selection], dtype=float)
+            masses = np.asarray(stars["Masses"][selection], dtype=float)
+            velocities = _read_optional_dataset(stars, "Velocities", selection)
+            formation = _read_optional_dataset(stars, "GFM_StellarFormationTime", selection)
+            if formation is not None:
+                formed = formation > 0.0
+                coords = coords[formed]
+                masses = masses[formed]
+                if velocities is not None:
+                    velocities = velocities[formed]
+            if len(masses):
+                yield ParticleSet(
+                    positions_kpc=(coords - center) / hubble_param,
+                    masses_msun=masses * 1.0e10 / hubble_param,
+                    velocities_kms=velocities.astype(float) if velocities is not None else None,
+                )
+        file_start = file_end
 
 
 def write_particle_set_hdf5(path: Path, particles: ParticleSet, *, subhalo_id: int) -> None:

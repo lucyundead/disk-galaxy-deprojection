@@ -58,7 +58,7 @@ The downloaded morphology/bar catalog is available on the cluster at
 identifies it as the IllustrisTNG supplementary data catalog
 `morphs_kinematic_bars`, reference `Zana et al. (2022)`, for `TNG50-1`.
 
-For the first real barred-galaxy sample, use:
+Initial visual-inspection sample:
 
 - snapshot: `99`
 - group catalog root: `/home/cossim/IllustrisTNG/TNG50-1`
@@ -79,6 +79,34 @@ subset is the top 64 by stellar mass:
 - stellar mass range: `8.66431488834513e10` to `1.6546997800139434e12` Msun
 - primary bar-strength range: `0.2064` to `0.5684`
 - primary bar-size range: `1.2421` to `7.4258`
+
+After visual inspection, the stricter sample definition is:
+
+- snapshot: `99`
+- group catalog root: `/home/cossim/IllustrisTNG/TNG50-1`
+- central subhalos only, via `GroupFirstSub`
+- `star_particles >= 50000`
+- `stellar_mass_msun >= 10^9.5`
+- catalog `Snapshot_99/Barred == True`
+- primary `Snapshot_99/BarStrength[0] >= 0.2`
+- primary `Snapshot_99/BarSize[0] >= 2.0`
+- deterministic galaxy-level split seed: `20260604`
+
+This cut produces 185 available barred central candidates. The first stricter
+visual-inspection subset is the top 64 by stellar mass:
+
+- remote manifest: `outputs/tng50_milestone2/barred_sample_m9p5_rbar2_64.csv`
+- local fetched manifest: `outputs/tng50_milestone2/barred_sample_m9p5_rbar2_64.csv`
+- all-particle face-on plots:
+  `outputs/tng50_milestone2/faceon_density_barred_m9p5_rbar2_64_allstars/`
+- split counts: 38 train, 13 validation, 13 test
+- stellar mass range: `7.45868978508813e10` to `1.6546997800139434e12` Msun
+- primary bar-strength range: `0.2064` to `0.5684`
+- primary bar-size range: `2.0272` to `7.4258`
+
+The stricter face-on plots are generated directly from all formed stellar
+particles in the TNG50 snapshot chunks, rather than from capped compact particle
+files.
 
 ## Remote Commands
 
@@ -103,8 +131,8 @@ python scripts/cluster_dgdp.py fetch-tng50
 
 ## Next Decisions
 
-- Replace group-catalog-only candidates with the downloaded kinematic
-  morphology/bar catalog once its schema is inspected.
+- Review the stricter all-particle face-on plots and remove remaining galaxies
+  with obvious tidal features or poorly resolved bars.
 - Reduce the mismatch between TNG particles and Milestone 1 synthetic summaries
   before interpreting corrected MAE.
 - Move from this summary residual smoke test toward the Milestone 2 coarse 3D

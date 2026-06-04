@@ -19,6 +19,11 @@ class ClusterConfig:
     snapshot: int
     hubble_param: float
     max_candidate_galaxies: int
+    min_star_particles: int
+    min_stellar_mass_msun: float
+    min_bar_strength: float
+    min_bar_size_kpc: float
+    split_seed: int
     max_particles_per_galaxy: int
 
 
@@ -37,6 +42,11 @@ def load_cluster_config(path: Path) -> ClusterConfig:
         snapshot=int(data["snapshot"]),
         hubble_param=float(data["hubble_param"]),
         max_candidate_galaxies=int(data["max_candidate_galaxies"]),
+        min_star_particles=int(data["min_star_particles"]),
+        min_stellar_mass_msun=float(data["min_stellar_mass_msun"]),
+        min_bar_strength=float(data["min_bar_strength"]),
+        min_bar_size_kpc=float(data["min_bar_size_kpc"]),
+        split_seed=int(data["split_seed"]),
         max_particles_per_galaxy=int(data["max_particles_per_galaxy"]),
     )
 

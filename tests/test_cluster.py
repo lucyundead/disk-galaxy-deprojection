@@ -13,6 +13,10 @@ def test_load_cluster_config_reads_defaults():
     assert cfg.remote_output_dir == "outputs/tng50_milestone2"
     assert cfg.bar_catalog_path == "/home/zli/disk-galaxy-deprojection/morphs_kinematic_bars.hdf5"
     assert cfg.max_candidate_galaxies == 64
+    assert cfg.min_star_particles == 50000
+    assert cfg.min_stellar_mass_msun == 3162277660.1683793
+    assert cfg.min_bar_strength == 0.2
+    assert cfg.min_bar_size_kpc == 2.0
 
 
 def test_sync_include_paths_are_lightweight():
