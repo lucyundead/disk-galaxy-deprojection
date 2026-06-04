@@ -51,6 +51,35 @@ The remote TNG50-1 group catalog was inspected directly on 2026-06-03 under
 `/home/cossim/IllustrisTNG/TNG50-1/groups_099`. Empty group-catalog chunks omit
 some datasets, so the reader skips empty chunks.
 
+## Barred TNG50 Sample Definition
+
+The downloaded morphology/bar catalog is available on the cluster at
+`/home/zli/disk-galaxy-deprojection/morphs_kinematic_bars.hdf5`. Its HDF5 header
+identifies it as the IllustrisTNG supplementary data catalog
+`morphs_kinematic_bars`, reference `Zana et al. (2022)`, for `TNG50-1`.
+
+For the first real barred-galaxy sample, use:
+
+- snapshot: `99`
+- group catalog root: `/home/cossim/IllustrisTNG/TNG50-1`
+- central subhalos only, via `GroupFirstSub`
+- `star_particles >= 50000`
+- `stellar_mass_msun >= 1.0e9`
+- catalog `Snapshot_99/Barred == True`
+- primary `Snapshot_99/BarStrength[0] >= 0.2`
+- primary `Snapshot_99/BarSize[0] >= 1.0`
+- deterministic galaxy-level split seed: `20260604`
+
+This cut produces 266 available barred central candidates. The first runnable
+subset is the top 64 by stellar mass:
+
+- remote manifest: `outputs/tng50_milestone2/barred_sample_64.csv`
+- local fetched manifest: `outputs/tng50_milestone2/barred_sample_64.csv`
+- split counts: 38 train, 13 validation, 13 test
+- stellar mass range: `8.66431488834513e10` to `1.6546997800139434e12` Msun
+- primary bar-strength range: `0.2064` to `0.5684`
+- primary bar-size range: `1.2421` to `7.4258`
+
 ## Remote Commands
 
 ```bash

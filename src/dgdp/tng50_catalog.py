@@ -87,6 +87,22 @@ def _split_for_rank(rank: int, n_rows: int) -> str:
     return "test"
 
 
+def assign_rank_splits(rows: pd.DataFrame) -> pd.DataFrame:
+    rows = rows.copy()
+    rows["split"] = [_split_for_rank(i, len(rows)) for i in range(len(rows))]
+    return rows
+
+
+def assign_galaxy_splits(rows: pd.DataFrame, *, seed: int) -> pd.DataFrame:
+    rows = rows.copy()
+    rng = np.random.default_rng(seed)
+    labels = [""] * len(rows)
+    for split_rank, row_index in enumerate(rng.permutation(len(rows))):
+        labels[int(row_index)] = _split_for_rank(split_rank, len(rows))
+    rows["split"] = labels
+    return rows
+
+
 def build_candidate_manifest(
     catalog: TNG50GroupCatalog,
     *,
@@ -118,5 +134,4 @@ def build_candidate_manifest(
     )
     rows = rows.sort_values("stellar_mass_msun", ascending=False).head(max_candidates)
     rows = rows.reset_index(drop=True)
-    rows["split"] = [_split_for_rank(i, len(rows)) for i in range(len(rows))]
-    return rows
+    return assign_rank_splits(rows)

@@ -2,8 +2,9 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+import pandas as pd
 
-from dgdp.tng50_catalog import build_candidate_manifest, read_group_catalog
+from dgdp.tng50_catalog import assign_galaxy_splits, build_candidate_manifest, read_group_catalog
 
 
 def _write_group_chunk(path: Path, first_subs: list[int], subhalo_offset: int) -> None:
@@ -82,3 +83,14 @@ def test_build_candidate_manifest_filters_centrals_and_particle_count(tmp_path):
     assert manifest["subhalo_id"].tolist() == [2, 0]
     assert manifest["split"].tolist() == ["train", "val"]
     assert manifest["star_particles"].tolist() == [7000, 5000]
+
+
+def test_assign_galaxy_splits_is_deterministic_and_keeps_rows():
+    rows = pd.DataFrame({"subhalo_id": [10, 20, 30, 40, 50, 60]})
+
+    split_a = assign_galaxy_splits(rows, seed=7)
+    split_b = assign_galaxy_splits(rows, seed=7)
+
+    assert split_a["subhalo_id"].tolist() == rows["subhalo_id"].tolist()
+    assert split_a["split"].tolist() == split_b["split"].tolist()
+    assert sorted(split_a["split"].tolist()) == ["test", "train", "train", "train", "train", "val"]

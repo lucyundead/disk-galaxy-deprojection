@@ -34,6 +34,25 @@ def test_read_bar_strengths_reads_known_columns(tmp_path):
     assert df["A2_bar"].iloc[1] == pytest.approx(0.35)
 
 
+def test_read_bar_strengths_reads_snapshot_catalog_schema(tmp_path):
+    path = tmp_path / "morphs_kinematic_bars.hdf5"
+    with h5py.File(path, "w") as handle:
+        snap = handle.create_group("Snapshot_99")
+        snap["SubhaloID"] = np.array([10, 20, 30], dtype=int)
+        snap["Barred"] = np.array([True, False, True])
+        snap["BarStrength"] = np.array([[0.25, 0.1, 0.4], [0.2, 0.05, 0.3]])
+        snap["BarSize"] = np.array([[1.5, 0.0, 3.0], [1.2, 0.0, 2.4]])
+        snap["StellarMass"] = np.array([1e10, 2e10, 3e10])
+
+    df = read_bar_strengths(path, snapshot=99)
+
+    assert df["subhalo_id"].tolist() == [10, 20, 30]
+    assert df["barred_catalog"].tolist() == [True, False, True]
+    assert df["bar_a2_catalog"].tolist() == [0.25, 0.1, 0.4]
+    assert df["bar_a2_secondary_catalog"].tolist() == [0.2, 0.05, 0.3]
+    assert df["bar_length_catalog"].tolist() == [1.5, 0.0, 3.0]
+
+
 def test_read_bar_strengths_raises_on_empty_file(tmp_path):
     path = tmp_path / "empty.hdf5"
     with h5py.File(path, "w"):
