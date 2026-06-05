@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 from collections.abc import Iterator
+from functools import lru_cache
+from pathlib import Path
 
 import h5py
 import numpy as np
@@ -26,19 +27,30 @@ def load_particle_set_hdf5(
     return ParticleSet(positions_kpc=coords, masses_msun=masses, velocities_kms=velocities)
 
 
-def _snapshot_files(snap_dir: Path, snapshot: int) -> list[Path]:
+@lru_cache(maxsize=8)
+def _snapshot_file_names(snap_dir: str, snapshot: int) -> tuple[str, ...]:
     def _chunk_number(path: Path) -> int:
         return int(path.name.removesuffix(".hdf5").rsplit(".", maxsplit=1)[1])
 
-    return sorted(snap_dir.glob(f"snap_{snapshot:03d}.*.hdf5"), key=_chunk_number)
+    paths = sorted(Path(snap_dir).glob(f"snap_{snapshot:03d}.*.hdf5"), key=_chunk_number)
+    return tuple(str(path) for path in paths)
 
 
-def _star_counts_by_file(files: list[Path]) -> list[int]:
+def _snapshot_files(snap_dir: Path, snapshot: int) -> list[Path]:
+    return [Path(path) for path in _snapshot_file_names(str(snap_dir), snapshot)]
+
+
+@lru_cache(maxsize=8)
+def _star_counts_by_file_names(files: tuple[str, ...]) -> tuple[int, ...]:
     counts = []
     for path in files:
         with h5py.File(path, "r") as handle:
             counts.append(int(handle["Header"].attrs["NumPart_ThisFile"][4]))
-    return counts
+    return tuple(counts)
+
+
+def _star_counts_by_file(files: list[Path]) -> list[int]:
+    return list(_star_counts_by_file_names(tuple(str(path) for path in files)))
 
 
 def _read_optional_dataset(

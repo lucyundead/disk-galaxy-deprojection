@@ -48,6 +48,7 @@ wrapper at /home/lucyundead/codex/hpc-agent/hpc.
     python scripts/cluster_dgdp.py check-env
     python scripts/cluster_dgdp.py reproduce-milestone1
     python scripts/cluster_dgdp.py run-tng50
+    python scripts/cluster_dgdp.py run-tng50-density
     python scripts/cluster_dgdp.py fetch-tng50
 
 The cluster workflow keeps full TNG50 snapshots remote and fetches only compact

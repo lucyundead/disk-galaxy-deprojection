@@ -189,6 +189,50 @@ outer low-density annuli have large fractional errors, the scale-height target
 is poorly constrained, and the central mass fraction shows bias in the
 truth-versus-prediction diagnostics.
 
+## Cylindrical 3D Stellar Density Products
+
+The first 3D ground-truth products are stored under
+`outputs/tng50_milestone2/density_grids_logr_cyl/`.
+
+Remote command:
+
+```bash
+python scripts/cluster_dgdp.py run-tng50-density
+python scripts/cluster_dgdp.py fetch-tng50
+```
+
+Grid definition:
+
+- coordinate frame: disk plane aligned to `z = 0`, bar major axis aligned to
+  the intrinsic `x` axis
+- density unit: `Msun/kpc^3`
+- shape per galaxy: `(n_R, n_phi, n_z) = (32, 48, 32)`
+- radial edges: logarithmic from `0.05` to `30.0` kpc, with an explicit
+  `R = 0` inner edge
+- azimuth edges: linear from `-pi` to `pi`
+- vertical edges: linear from `-10.0` to `10.0` kpc
+- orientation source: compact 80000-particle files
+- density source: all formed stellar particles streamed directly from TNG50
+  snapshot chunks
+
+Completed run:
+
+- density grids written: `64`
+- local fetched size: about `31 MB`
+- catalog: `outputs/tng50_milestone2/density_grids_logr_cyl/density_grid_catalog.csv`
+- diagnostics:
+  `outputs/tng50_milestone2/density_grids_logr_cyl/density_grid_diagnostics.json`
+- median mass fraction inside grid: `0.8812214944172503`
+- minimum mass fraction inside grid: `0.5249403366441652`
+- maximum mass fraction inside grid: `0.9745345221702302`
+
+The low minimum mass fraction is from the most massive, extended systems. The
+current grid is intentionally focused on the bar and inner disk; it conserves
+mass within the stated cylindrical volume, but it does not capture all stellar
+halo or far-outer disk mass for every galaxy. Before training a 3D residual
+model, decide whether the target should remain an inner-bar/disk density field
+or expand to a larger radial/vertical box.
+
 ## Remote Commands
 
 ```bash
@@ -196,6 +240,7 @@ python scripts/cluster_dgdp.py sync
 python scripts/cluster_dgdp.py check-env
 python scripts/cluster_dgdp.py reproduce-milestone1
 python scripts/cluster_dgdp.py run-tng50
+python scripts/cluster_dgdp.py run-tng50-density
 python scripts/cluster_dgdp.py run python scripts/diagnose_summary_residual.py --run-dir outputs/tng50_milestone2 --output-dir outputs/tng50_milestone2/diagnostics --split test --n-samples 256
 python scripts/cluster_dgdp.py fetch-tng50
 ```
@@ -209,14 +254,17 @@ python scripts/cluster_dgdp.py fetch-tng50
 - scripts/extract_tng50_particles.py - Remote particle extractor
 - scripts/build_tng50_benchmark.py - Remote benchmark builder
 - scripts/diagnose_summary_residual.py - Residual diagnostic tables and plots
+- scripts/build_tng50_density_grid.py - Cylindrical 3D density-grid builder
+- src/dgdp/density3d.py - Cylindrical grid, density, and projection diagnostics
 - scripts/cluster_dgdp.py - Cluster CLI (expanded with run-tng50)
 - configs/milestone2.cluster.toml - Cluster configuration
 
 ## Next Decisions
 
-- Review the stricter all-particle face-on plots and remove remaining galaxies
-  with obvious tidal features or poorly resolved bars.
-- Reduce the mismatch between TNG particles and Milestone 1 synthetic summaries
-  before interpreting corrected MAE.
-- Move from this summary residual smoke test toward the Milestone 2 coarse 3D
-  target only after the barred sample and target definition are fixed.
+- Decide whether the first 3D model target is the current inner-bar/disk grid
+  (`R <= 30 kpc`, `|z| <= 10 kpc`) or a larger grid that captures more outer
+  stellar mass for the most massive systems.
+- Build the matching baseline 3D density grids in the same cylindrical
+  coordinates.
+- Start with a low-dimensional or heavily downsampled 3D residual target before
+  training a full image-conditioned model.

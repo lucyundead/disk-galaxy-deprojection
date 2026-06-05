@@ -6,6 +6,7 @@ from scripts.cluster_dgdp import (
     build_remote_command,
     build_rsync_fetch_command,
     build_rsync_push_command,
+    build_tng50_density_remote_commands,
     build_tng50_remote_commands,
     write_sync_archive,
 )
@@ -102,3 +103,23 @@ def test_build_tng50_remote_commands_include_manifest_extract_train_eval():
     assert "--snapshot 99" in text
     assert "--min-stellar-mass-msun 3162277660.1683793" in text
     assert "--min-bar-size-kpc 2.0" in text
+
+
+def test_build_tng50_density_remote_commands_use_existing_manifest_and_particles():
+    commands = build_tng50_density_remote_commands(
+        remote_tng50_root="/home/cossim/IllustrisTNG/TNG50-1",
+        remote_output_dir="outputs/tng50_milestone2",
+        snapshot=99,
+        hubble_param=0.6774,
+    )
+    text = "\n".join(commands)
+
+    assert "scripts/build_tng50_density_grid.py" in text
+    assert "--manifest outputs/tng50_milestone2/manifest.csv" in text
+    assert "--particle-dir outputs/tng50_milestone2/particles" in text
+    assert "--tng-root /home/cossim/IllustrisTNG/TNG50-1" in text
+    assert "--output-dir outputs/tng50_milestone2/density_grids_logr_cyl" in text
+    assert "--r-min-kpc 0.05" in text
+    assert "--n-r 32" in text
+    assert "--n-phi 48" in text
+    assert "--n-z 32" in text

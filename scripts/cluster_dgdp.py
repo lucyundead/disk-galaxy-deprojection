@@ -77,6 +77,36 @@ def build_tng50_remote_commands(
     ]
 
 
+def build_tng50_density_remote_commands(
+    *,
+    remote_tng50_root: str,
+    remote_output_dir: str,
+    snapshot: int,
+    hubble_param: float,
+) -> list[str]:
+    output_dir = shlex.quote(f"{remote_output_dir}/density_grids_logr_cyl")
+    manifest = shlex.quote(f"{remote_output_dir}/manifest.csv")
+    particles = shlex.quote(f"{remote_output_dir}/particles")
+    tng_root = shlex.quote(remote_tng50_root)
+    return [
+        (
+            "python scripts/build_tng50_density_grid.py "
+            f"--manifest {manifest} "
+            f"--particle-dir {particles} "
+            f"--tng-root {tng_root} "
+            f"--output-dir {output_dir} "
+            f"--snapshot {snapshot} "
+            f"--hubble-param {hubble_param} "
+            "--r-min-kpc 0.05 "
+            "--r-max-kpc 30.0 "
+            "--n-r 32 "
+            "--n-phi 48 "
+            "--z-max-kpc 10.0 "
+            "--n-z 32"
+        )
+    ]
+
+
 def build_rsync_push_command(
     *,
     project_root: Path,
@@ -238,6 +268,7 @@ def parse_args() -> argparse.Namespace:
     sub.add_parser("check-env")
     sub.add_parser("reproduce-milestone1")
     sub.add_parser("run-tng50")
+    sub.add_parser("run-tng50-density")
     sub.add_parser("fetch-tng50")
     run_parser = sub.add_parser("run")
     run_parser.add_argument("remote_command", nargs=argparse.REMAINDER)
@@ -291,6 +322,17 @@ def main() -> int:
                 min_bar_size_kpc=cfg.min_bar_size_kpc,
                 split_seed=cfg.split_seed,
                 max_particles_per_galaxy=cfg.max_particles_per_galaxy,
+                hubble_param=cfg.hubble_param,
+            ),
+        )
+
+    if args.command == "run-tng50-density":
+        return run_remote(
+            args.config,
+            build_tng50_density_remote_commands(
+                remote_tng50_root=cfg.remote_tng50_root,
+                remote_output_dir=cfg.remote_output_dir,
+                snapshot=cfg.snapshot,
                 hubble_param=cfg.hubble_param,
             ),
         )
