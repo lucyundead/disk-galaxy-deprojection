@@ -134,6 +134,61 @@ Remote run on the stricter 64-galaxy sample:
 - `coverage_68`: 0.7004273504273504
 - `n_test`: 117
 
+## Projection Grid Diagnostics
+
+The projection-grid benchmark diagnostics are stored under
+`outputs/tng50_milestone2/diagnostics/`.
+
+Remote diagnostic command:
+
+```bash
+python scripts/diagnose_summary_residual.py \
+  --run-dir outputs/tng50_milestone2 \
+  --output-dir outputs/tng50_milestone2/diagnostics \
+  --split test \
+  --n-samples 256
+```
+
+Diagnostic aggregate on the 117 held-out projections:
+
+- `baseline_mae`: 188152672.0
+- `corrected_mae`: 66601940.0
+- `coverage_68`: 0.7568376068376068
+
+The corrected model improves the aggregate MAE by about 65 percent, but this is
+not uniformly good across every physical summary. The strongest improvements
+are in outer enclosed mass and surface-density summaries, where the geometric
+baseline is biased. One inner mass target regresses:
+`enclosed_mass_r_le_2.000_kpc` changes from `52470936.0` baseline MAE to
+`62682220.0` corrected MAE. Vertical structure is still weak: the disk
+scale-height MAE improves only from `5.063199` to `4.823713` kpc, and its mean
+relative absolute error worsens from `0.552506` to `0.639942`.
+
+Stratified by inclination:
+
+- `20 deg`: baseline MAE `143295184.0`, corrected MAE `72106936.0`,
+  coverage `0.764102564102564`
+- `40 deg`: baseline MAE `174277552.0`, corrected MAE `54390572.0`,
+  coverage `0.8474358974358974`
+- `60 deg`: baseline MAE `246885312.0`, corrected MAE `73308296.0`,
+  coverage `0.658974358974359`
+
+Stratified by face-on bar viewing angle:
+
+- `0 deg`: baseline MAE `176263104.0`, corrected MAE `63072344.0`,
+  coverage `0.7871794871794872`
+- `45 deg`: baseline MAE `188619664.0`, corrected MAE `64738876.0`,
+  coverage `0.7628205128205128`
+- `90 deg`: baseline MAE `199575296.0`, corrected MAE `71994592.0`,
+  coverage `0.7205128205128205`
+
+Current interpretation: the residual model is useful as a benchmark diagnostic,
+especially because it reduces the inclination-dependent baseline bias. It is not
+yet good enough to claim robust 3D stellar structure recovery, mainly because
+outer low-density annuli have large fractional errors, the scale-height target
+is poorly constrained, and the central mass fraction shows bias in the
+truth-versus-prediction diagnostics.
+
 ## Remote Commands
 
 ```bash
@@ -141,6 +196,7 @@ python scripts/cluster_dgdp.py sync
 python scripts/cluster_dgdp.py check-env
 python scripts/cluster_dgdp.py reproduce-milestone1
 python scripts/cluster_dgdp.py run-tng50
+python scripts/cluster_dgdp.py run python scripts/diagnose_summary_residual.py --run-dir outputs/tng50_milestone2 --output-dir outputs/tng50_milestone2/diagnostics --split test --n-samples 256
 python scripts/cluster_dgdp.py fetch-tng50
 ```
 
@@ -152,6 +208,7 @@ python scripts/cluster_dgdp.py fetch-tng50
 - scripts/build_tng50_manifest.py - Remote manifest builder
 - scripts/extract_tng50_particles.py - Remote particle extractor
 - scripts/build_tng50_benchmark.py - Remote benchmark builder
+- scripts/diagnose_summary_residual.py - Residual diagnostic tables and plots
 - scripts/cluster_dgdp.py - Cluster CLI (expanded with run-tng50)
 - configs/milestone2.cluster.toml - Cluster configuration
 
