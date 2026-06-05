@@ -108,6 +108,32 @@ The stricter face-on plots are generated directly from all formed stellar
 particles in the TNG50 snapshot chunks, rather than from capped compact particle
 files.
 
+## Projection Grid Benchmark
+
+The first benchmark projection grid uses 9 projections per approved galaxy:
+
+- inclinations: `20`, `40`, `60` degrees
+- face-on bar viewing angles: `0`, `45`, `90` degrees
+- disk PA: `0` degrees for this first controlled grid
+
+The implementation first estimates the stellar disk normal, rotates each galaxy
+to face-on, estimates the in-plane bar major axis, aligns that bar to the
+intrinsic x-axis, then applies the requested face-on bar viewing angle before
+inclination. Splits remain by galaxy.
+
+Remote run on the stricter 64-galaxy sample:
+
+- manifest rows: 576
+- galaxies: 64
+- projections per galaxy: 9
+- split counts by galaxy: 38 train, 13 validation, 13 test
+- residual table: `outputs/tng50_milestone2/residual_table.npz`
+- metrics: `outputs/tng50_milestone2/metrics.json`
+- `baseline_mae`: 188152672.0
+- `corrected_mae`: 69017608.0
+- `coverage_68`: 0.7004273504273504
+- `n_test`: 117
+
 ## Remote Commands
 
 ```bash

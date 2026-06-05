@@ -16,7 +16,8 @@ def project_to_mock_image(
     noise_sigma_fraction: float,
     seed: int,
 ) -> MockImage:
-    rotated = rotate_points(particles.positions_kpc, rotation_matrix_z(geometry.disk_pa_deg))
+    rotated = rotate_points(particles.positions_kpc, rotation_matrix_z(geometry.bar_angle_deg))
+    rotated = rotate_points(rotated, rotation_matrix_z(geometry.disk_pa_deg))
     rotated = rotate_points(rotated, rotation_matrix_x(geometry.inclination_deg))
     xy = rotated[:, :2]
 
