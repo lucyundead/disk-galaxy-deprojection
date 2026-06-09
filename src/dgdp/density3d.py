@@ -220,6 +220,15 @@ def build_cylindrical_density_grid(
     return accumulate_cylindrical_density_grid([particles], spec)
 
 
+def read_cylindrical_grid_spec_hdf5(path: Path) -> CylindricalGridSpec:
+    with h5py.File(path, "r") as handle:
+        return CylindricalGridSpec(
+            r_edges_kpc=np.asarray(handle["r_edges_kpc"], dtype=float),
+            phi_edges_rad=np.asarray(handle["phi_edges_rad"], dtype=float),
+            z_edges_kpc=np.asarray(handle["z_edges_kpc"], dtype=float),
+        )
+
+
 def grid_radial_mass_profile(grid: CylindricalDensityGrid) -> np.ndarray:
     return np.sum(grid.mass_msun, axis=(1, 2))
 

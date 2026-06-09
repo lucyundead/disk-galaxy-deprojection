@@ -15,6 +15,8 @@ class ClusterConfig:
     remote_milestone1_output_dir: str
     remote_output_dir: str
     local_fetch_dir: str
+    remote_milestone2b_output_dir: str
+    local_milestone2b_fetch_dir: str
     bar_catalog_path: str
     snapshot: int
     hubble_param: float
@@ -38,6 +40,8 @@ def load_cluster_config(path: Path) -> ClusterConfig:
         remote_milestone1_output_dir=str(data["remote_milestone1_output_dir"]),
         remote_output_dir=str(data["remote_output_dir"]),
         local_fetch_dir=str(data["local_fetch_dir"]),
+        remote_milestone2b_output_dir=str(data["remote_milestone2b_output_dir"]),
+        local_milestone2b_fetch_dir=str(data["local_milestone2b_fetch_dir"]),
         bar_catalog_path=str(data["bar_catalog_path"]),
         snapshot=int(data["snapshot"]),
         hubble_param=float(data["hubble_param"]),

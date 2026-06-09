@@ -6,7 +6,9 @@ from scripts.cluster_dgdp import (
     build_remote_command,
     build_rsync_fetch_command,
     build_rsync_push_command,
+    build_tng50_baseline_density_remote_commands,
     build_tng50_density_remote_commands,
+    build_tng50_milestone2b_clean_remote_commands,
     build_tng50_remote_commands,
     write_sync_archive,
 )
@@ -123,3 +125,51 @@ def test_build_tng50_density_remote_commands_use_existing_manifest_and_particles
     assert "--n-r 32" in text
     assert "--n-phi 48" in text
     assert "--n-z 32" in text
+
+
+def test_build_tng50_baseline_density_remote_commands_use_existing_density_products():
+    commands = build_tng50_baseline_density_remote_commands(
+        remote_output_dir="outputs/tng50_milestone2",
+    )
+    text = "\n".join(commands)
+
+    assert "scripts/build_tng50_baseline_density_grid.py" in text
+    assert "--manifest outputs/tng50_milestone2/manifest.csv" in text
+    assert "--residual-table outputs/tng50_milestone2/residual_table.npz" in text
+    assert "--truth-grid-dir outputs/tng50_milestone2/density_grids_logr_cyl" in text
+    assert "--output-dir outputs/tng50_milestone2/baseline_density_grids_logr_cyl" in text
+    assert "scripts/build_tng50_density_residual_table.py" in text
+    assert "--baseline-grid-dir outputs/tng50_milestone2/baseline_density_grids_logr_cyl" in text
+    assert "--output outputs/tng50_milestone2/density_residual_table.npz" in text
+
+
+def test_build_tng50_milestone2b_clean_remote_commands_reuse_remote_particles_and_truth_grids():
+    commands = build_tng50_milestone2b_clean_remote_commands(
+        remote_tng50_root="/home/cossim/IllustrisTNG/TNG50-1",
+        source_output_dir="outputs/tng50_milestone2",
+        milestone2b_output_dir="outputs/tng50_milestone2b",
+        snapshot=99,
+        hubble_param=0.6774,
+    )
+    text = "\n".join(commands)
+
+    assert "scripts/build_tng50_all_particle_images.py" in text
+    assert "--config configs/milestone2b.clean3d.toml" in text
+    assert "--manifest outputs/tng50_milestone2/manifest.csv" in text
+    assert "--particle-dir outputs/tng50_milestone2/particles" in text
+    assert "--tng-root /home/cossim/IllustrisTNG/TNG50-1" in text
+    assert "--snapshot 99" in text
+    assert "--hubble-param 0.6774" in text
+    assert "--output-dir outputs/tng50_milestone2b" in text
+    assert "cp -a outputs/tng50_milestone2/density_grids_logr_cyl/." in text
+    assert "outputs/tng50_milestone2b/density_grids_logr_cyl/" in text
+    assert "scripts/build_tng50_baseline_density_grid.py" in text
+    assert "--config configs/milestone2b.clean3d.toml" in text
+    assert "--residual-table outputs/tng50_milestone2b/residual_table.npz" in text
+    assert "--output-dir outputs/tng50_milestone2b/baseline_density_grids_logr_cyl" in text
+    assert "scripts/build_tng50_density_residual_table.py" in text
+    assert "--output outputs/tng50_milestone2b/density_residual_table.npz" in text
+    assert "scripts/build_tng50_benchmark.py" not in text
+    assert "scripts/build_tng50_manifest.py" not in text
+    assert "scripts/extract_tng50_particles.py" not in text
+    assert "--delete" not in text

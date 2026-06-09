@@ -107,6 +107,72 @@ def build_tng50_density_remote_commands(
     ]
 
 
+def build_tng50_baseline_density_remote_commands(
+    *,
+    remote_output_dir: str,
+    benchmark_config: str = "configs/milestone1.synthetic.toml",
+) -> list[str]:
+    manifest = shlex.quote(f"{remote_output_dir}/manifest.csv")
+    residual_table = shlex.quote(f"{remote_output_dir}/residual_table.npz")
+    truth_grid_dir = shlex.quote(f"{remote_output_dir}/density_grids_logr_cyl")
+    baseline_grid_dir = shlex.quote(f"{remote_output_dir}/baseline_density_grids_logr_cyl")
+    density_residual_table = shlex.quote(f"{remote_output_dir}/density_residual_table.npz")
+    return [
+        (
+            "python scripts/build_tng50_baseline_density_grid.py "
+            f"--config {shlex.quote(benchmark_config)} "
+            f"--manifest {manifest} "
+            f"--residual-table {residual_table} "
+            f"--truth-grid-dir {truth_grid_dir} "
+            f"--output-dir {baseline_grid_dir}"
+        ),
+        (
+            "python scripts/build_tng50_density_residual_table.py "
+            f"--manifest {manifest} "
+            f"--residual-table {residual_table} "
+            f"--truth-grid-dir {truth_grid_dir} "
+            f"--baseline-grid-dir {baseline_grid_dir} "
+            f"--output {density_residual_table}"
+        ),
+    ]
+
+
+def build_tng50_milestone2b_clean_remote_commands(
+    *,
+    remote_tng50_root: str,
+    source_output_dir: str,
+    milestone2b_output_dir: str,
+    snapshot: int,
+    hubble_param: float,
+) -> list[str]:
+    benchmark_config = "configs/milestone2b.clean3d.toml"
+    source_manifest = shlex.quote(f"{source_output_dir}/manifest.csv")
+    source_particles = shlex.quote(f"{source_output_dir}/particles")
+    tng_root = shlex.quote(remote_tng50_root)
+    milestone2b_output = shlex.quote(milestone2b_output_dir)
+    source_density = shlex.quote(f"{source_output_dir}/density_grids_logr_cyl")
+    milestone2b_density = shlex.quote(f"{milestone2b_output_dir}/density_grids_logr_cyl")
+    return [
+        f"mkdir -p {milestone2b_output}",
+        (
+            "python scripts/build_tng50_all_particle_images.py "
+            f"--config {shlex.quote(benchmark_config)} "
+            f"--manifest {source_manifest} "
+            f"--particle-dir {source_particles} "
+            f"--tng-root {tng_root} "
+            f"--output-dir {milestone2b_output}"
+            f" --snapshot {snapshot} "
+            f"--hubble-param {hubble_param}"
+        ),
+        f"mkdir -p {milestone2b_density}",
+        f"cp -a {source_density}/. {milestone2b_density}/",
+        *build_tng50_baseline_density_remote_commands(
+            remote_output_dir=milestone2b_output_dir,
+            benchmark_config=benchmark_config,
+        ),
+    ]
+
+
 def build_rsync_push_command(
     *,
     project_root: Path,
@@ -206,11 +272,17 @@ def _safe_extract_archive(archive_path: Path, destination: Path) -> None:
             archive.extractall(destination)
 
 
-def run_archive_fetch(config_path: Path, project_root: Path) -> int:
+def run_archive_fetch(
+    config_path: Path,
+    project_root: Path,
+    *,
+    remote_output_dir_override: str | None = None,
+) -> int:
     cfg = load_cluster_config(config_path)
-    remote_output_dir = shlex.quote(cfg.remote_output_dir)
-    particle_exclude = shlex.quote(f"{cfg.remote_output_dir}/particles")
-    barred_particle_exclude = shlex.quote(f"{cfg.remote_output_dir}/barred_particles_*")
+    output_dir_value = remote_output_dir_override or cfg.remote_output_dir
+    remote_output_dir = shlex.quote(output_dir_value)
+    particle_exclude = shlex.quote(f"{output_dir_value}/particles")
+    barred_particle_exclude = shlex.quote(f"{output_dir_value}/barred_particles_*")
     script = "\n".join(
         [
             "set -e",
@@ -269,7 +341,10 @@ def parse_args() -> argparse.Namespace:
     sub.add_parser("reproduce-milestone1")
     sub.add_parser("run-tng50")
     sub.add_parser("run-tng50-density")
+    sub.add_parser("run-tng50-baseline-density")
+    sub.add_parser("run-tng50-milestone2b-clean")
     sub.add_parser("fetch-tng50")
+    sub.add_parser("fetch-tng50-milestone2b")
     run_parser = sub.add_parser("run")
     run_parser.add_argument("remote_command", nargs=argparse.REMAINDER)
     return parser.parse_args()
@@ -337,6 +412,26 @@ def main() -> int:
             ),
         )
 
+    if args.command == "run-tng50-baseline-density":
+        return run_remote(
+            args.config,
+            build_tng50_baseline_density_remote_commands(
+                remote_output_dir=cfg.remote_output_dir,
+            ),
+        )
+
+    if args.command == "run-tng50-milestone2b-clean":
+        return run_remote(
+            args.config,
+            build_tng50_milestone2b_clean_remote_commands(
+                remote_tng50_root=cfg.remote_tng50_root,
+                source_output_dir=cfg.remote_output_dir,
+                milestone2b_output_dir=cfg.remote_milestone2b_output_dir,
+                snapshot=cfg.snapshot,
+                hubble_param=cfg.hubble_param,
+            ),
+        )
+
     if args.command == "fetch-tng50":
         if shutil.which("rsync") is None:
             return run_archive_fetch(args.config, project_root)
@@ -346,6 +441,22 @@ def main() -> int:
             remote_project_root=cfg.remote_project_root,
             remote_output_dir=cfg.remote_output_dir,
             local_fetch_dir=Path(cfg.local_fetch_dir),
+        )
+        return subprocess.run(cmd, check=False).returncode
+
+    if args.command == "fetch-tng50-milestone2b":
+        if shutil.which("rsync") is None:
+            return run_archive_fetch(
+                args.config,
+                project_root,
+                remote_output_dir_override=cfg.remote_milestone2b_output_dir,
+            )
+        Path(cfg.local_milestone2b_fetch_dir).mkdir(parents=True, exist_ok=True)
+        cmd = build_rsync_fetch_command(
+            cluster_host=cfg.cluster_host,
+            remote_project_root=cfg.remote_project_root,
+            remote_output_dir=cfg.remote_milestone2b_output_dir,
+            local_fetch_dir=Path(cfg.local_milestone2b_fetch_dir),
         )
         return subprocess.run(cmd, check=False).returncode
 

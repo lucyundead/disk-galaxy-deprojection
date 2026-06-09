@@ -7,6 +7,8 @@ from dgdp.density3d import (
     grid_radial_mass_profile,
     logarithmic_radial_edges,
     particle_radial_mass_profile,
+    read_cylindrical_grid_spec_hdf5,
+    write_cylindrical_density_hdf5,
 )
 from dgdp.types import ParticleSet
 
@@ -91,3 +93,26 @@ def test_accumulate_density_grid_and_faceon_image_conserves_image_mass():
 
     assert np.isclose(grid.grid_mass_msun, 5.0)
     assert np.isclose(np.sum(image), 5.0)
+
+
+def test_read_cylindrical_grid_spec_hdf5_round_trips_written_edges(tmp_path):
+    spec = CylindricalGridSpec(
+        r_edges_kpc=np.array([0.0, 1.0, 3.0]),
+        phi_edges_rad=np.linspace(-np.pi, np.pi, 5),
+        z_edges_kpc=np.array([-1.0, 0.0, 1.0]),
+    )
+    grid = build_cylindrical_density_grid(
+        ParticleSet(
+            positions_kpc=np.array([[0.5, 0.0, 0.0]]),
+            masses_msun=np.array([2.0]),
+        ),
+        spec,
+    )
+    path = tmp_path / "grid.hdf5"
+    write_cylindrical_density_hdf5(path, grid, attrs={})
+
+    loaded = read_cylindrical_grid_spec_hdf5(path)
+
+    assert np.allclose(loaded.r_edges_kpc, spec.r_edges_kpc)
+    assert np.allclose(loaded.phi_edges_rad, spec.phi_edges_rad)
+    assert np.allclose(loaded.z_edges_kpc, spec.z_edges_kpc)
