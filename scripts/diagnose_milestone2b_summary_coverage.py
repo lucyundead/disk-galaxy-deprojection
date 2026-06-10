@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 from pathlib import Path
 from typing import Any
@@ -64,6 +65,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pca", type=Path, default=DEFAULT_PCA)
     parser.add_argument("--predictions", type=Path, default=DEFAULT_PREDICTIONS)
     parser.add_argument("--final-evaluation-metrics", type=Path, default=DEFAULT_FINAL_METRICS)
+    parser.add_argument("--total-mass-predictions", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--central-radius-kpc", type=float, default=2.0)
     parser.add_argument("--bar-half-angle-deg", type=float, default=30.0)
@@ -152,6 +154,7 @@ def _total_mass_diagnostics(
     truth_radial: np.ndarray,
     sample_mean_radial: np.ndarray,
     test_mask: np.ndarray,
+    correction_applied: bool,
 ) -> dict[str, Any]:
     truth_total = np.sum(truth_mass, axis=(1, 2, 3), dtype=np.float64)
     baseline_total = np.sum(baseline_mass, axis=(1, 2, 3), dtype=np.float64)
@@ -182,12 +185,21 @@ def _total_mass_diagnostics(
         correlation = float(np.corrcoef(implied_bias.ravel(), observed_bias.ravel())[0, 1])
     else:
         correlation = float("nan")
-    return {
-        "note": (
+    if correction_applied:
+        note = (
+            "A total-mass correction is applied: posterior samples are rescaled to predicted "
+            "total masses instead of the baseline total. The offsets below still measure the "
+            "raw truth-vs-baseline total-mass mismatch; the explained fraction measures how "
+            "much of the remaining radial bias the raw constraint would account for."
+        )
+    else:
+        note = (
             "Posterior samples share the baseline total grid mass by construction, so the "
             "fractional offset between truth and baseline total mass is an uncorrectable "
             "error floor for absolute-mass summaries."
-        ),
+        )
+    return {
+        "note": note,
         "by_split": by_split,
         "radial_profile_bias_explained_fraction": explained_fraction,
         "radial_profile_bias_correlation": correlation,
@@ -205,6 +217,7 @@ def build_metrics(
     sample_batch_size: int,
     bootstrap_draws: int,
     seed: int,
+    total_mass_predictions: np.lib.npyio.NpzFile | None = None,
 ) -> dict[str, Any]:
     split = table["split"].astype(str)
     metadata = table["metadata"].astype(np.float32)
@@ -223,6 +236,7 @@ def build_metrics(
         central_radius_kpc=central_radius_kpc,
         bar_half_angle_deg=bar_half_angle_deg,
         sample_batch_size=sample_batch_size,
+        total_mass_predictions=total_mass_predictions,
     )
     rng = np.random.default_rng(seed)
     test_galaxies = galaxy_ids[test_mask]
@@ -337,10 +351,12 @@ def build_metrics(
         truth_radial=truth_summaries["radial_profile"],
         sample_mean_radial=np.mean(sample_summaries["radial_profile"], axis=1),
         test_mask=test_mask,
+        correction_applied=total_mass_predictions is not None,
     )
     return {
         "selected_run_id": final_metrics["selected_model"]["run_id"],
         "target_coverage": TARGET_COVERAGE,
+        "total_mass_correction_applied": total_mass_predictions is not None,
         "bootstrap_draws": int(bootstrap_draws),
         "seed": int(seed),
         "n_val": int(np.sum(val_mask)),
@@ -371,6 +387,8 @@ def _write_markdown(path: Path, metrics: dict[str, Any]) -> None:
         "z-scores and PIT values of the uncalibrated posterior samples.",
         "",
         f"- selected run: `{metrics['selected_run_id']}`",
+        f"- total-mass correction applied: "
+        f"`{'yes' if metrics.get('total_mass_correction_applied') else 'no'}`",
         f"- target coverage: `{metrics['target_coverage']:.2f}`",
         f"- bootstrap draws: `{metrics['bootstrap_draws']}` (seed `{metrics['seed']}`)",
         f"- validation galaxies/rows: `{metrics['n_val_galaxies']}` / `{metrics['n_val']}`",
@@ -482,11 +500,15 @@ def _write_markdown(path: Path, metrics: dict[str, Any]) -> None:
 def main() -> None:
     args = parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    with (
-        np.load(args.density_table) as table,
-        np.load(args.pca) as pca,
-        np.load(args.predictions) as predictions,
-    ):
+    with contextlib.ExitStack() as stack:
+        table = stack.enter_context(np.load(args.density_table))
+        pca = stack.enter_context(np.load(args.pca))
+        predictions = stack.enter_context(np.load(args.predictions))
+        total_mass_predictions = (
+            stack.enter_context(np.load(args.total_mass_predictions))
+            if args.total_mass_predictions is not None
+            else None
+        )
         metrics = build_metrics(
             table=table,
             pca=pca,
@@ -497,6 +519,7 @@ def main() -> None:
             sample_batch_size=args.sample_batch_size,
             bootstrap_draws=args.bootstrap_draws,
             seed=args.seed,
+            total_mass_predictions=total_mass_predictions,
         )
     (args.output_dir / "milestone2b_summary_coverage_diagnostics_metrics.json").write_text(
         json.dumps(metrics, indent=2, sort_keys=True),

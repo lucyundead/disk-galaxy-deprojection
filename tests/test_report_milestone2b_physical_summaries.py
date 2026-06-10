@@ -86,6 +86,20 @@ def _write_tiny_physical_inputs(tmp_path):
     return density_path, pca_path, predictions_path, final_metrics_path
 
 
+def _write_tiny_total_mass_predictions(tmp_path):
+    path = tmp_path / "total_mass_predictions.npz"
+    rng = np.random.default_rng(7)
+    sampled_log_ratio = rng.normal(0.02, 0.01, size=(5, 4)).astype(np.float32)
+    np.savez_compressed(
+        path,
+        sampled_log_ratio=sampled_log_ratio,
+        mean_log_ratio=sampled_log_ratio.mean(axis=1).astype(np.float32),
+        true_log_ratio=np.zeros(5, dtype=np.float32),
+        split=np.array(["train", "val", "test", "test", "test"]),
+    )
+    return path
+
+
 def test_report_milestone2b_physical_summaries_writes_metrics_and_markdown(
     tmp_path,
     monkeypatch,

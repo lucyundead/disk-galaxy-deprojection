@@ -88,6 +88,17 @@ def _corrected_mass_from_delta(baseline_mass: np.ndarray, delta_mass: np.ndarray
     return _preserve_total_mass(baseline_mass, corrected)
 
 
+def _rescale_rows_to_total_mass(mass: np.ndarray, target_total_msun: np.ndarray) -> np.ndarray:
+    current_total = np.sum(mass, axis=tuple(range(1, mass.ndim)))
+    scale = np.divide(
+        target_total_msun.astype(np.float32),
+        current_total.astype(np.float32),
+        out=np.ones_like(current_total, dtype=np.float32),
+        where=current_total > 0.0,
+    )
+    return (mass * scale.reshape((-1,) + (1,) * (mass.ndim - 1))).astype(np.float32)
+
+
 def radial_mass_profiles(mass: np.ndarray) -> np.ndarray:
     return np.sum(mass, axis=(-2, -1))
 
@@ -183,6 +194,7 @@ def _calibrated_sample_batches(
     baseline_grid_mass_msun: np.ndarray,
     row_scales: np.ndarray,
     batch_size: int,
+    target_total_mass_msun: np.ndarray | None = None,
 ):
     n_rows, n_samples, n_coefficients = sampled_coefficients.shape
     grid_shape = tuple(int(x) for x in baseline_mass.shape[1:])
@@ -207,6 +219,11 @@ def _calibrated_sample_batches(
             repeated_baseline.reshape((-1, *grid_shape)).astype(np.float32),
             delta,
         )
+        if target_total_mass_msun is not None:
+            corrected = _rescale_rows_to_total_mass(
+                corrected,
+                target_total_mass_msun[start:stop].reshape(-1),
+            )
         yield corrected.reshape((stop - start, n_samples, *grid_shape))
 
 

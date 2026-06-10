@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,7 @@ try:
         _calibrated_sample_batches,
         _fmt,
         _mass_grids,
+        _rescale_rows_to_total_mass,
         _row_temperature_scales,
         _summary_functions,
         _temperature_scales_by_inclination,
@@ -29,6 +31,7 @@ except ModuleNotFoundError:
         _calibrated_sample_batches,
         _fmt,
         _mass_grids,
+        _rescale_rows_to_total_mass,
         _row_temperature_scales,
         _summary_functions,
         _temperature_scales_by_inclination,
@@ -45,6 +48,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pca", type=Path, default=DEFAULT_PCA)
     parser.add_argument("--predictions", type=Path, default=DEFAULT_PREDICTIONS)
     parser.add_argument("--final-evaluation-metrics", type=Path, default=DEFAULT_FINAL_METRICS)
+    parser.add_argument("--total-mass-predictions", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--central-radius-kpc", type=float, default=2.0)
     parser.add_argument("--bar-half-angle-deg", type=float, default=30.0)
@@ -200,6 +204,29 @@ def _summary_labels() -> dict[str, str]:
     }
 
 
+def _total_mass_targets(
+    table: np.lib.npyio.NpzFile,
+    sampled_coefficients: np.ndarray,
+    total_mass_predictions: np.lib.npyio.NpzFile,
+) -> tuple[np.ndarray, np.ndarray]:
+    baseline_total = table["baseline_grid_mass_msun"].astype(np.float32)
+    sampled_log_ratio = total_mass_predictions["sampled_log_ratio"].astype(np.float32)
+    mean_log_ratio = total_mass_predictions["mean_log_ratio"].astype(np.float32)
+    if sampled_log_ratio.shape[0] != baseline_total.shape[0]:
+        raise ValueError(
+            "total-mass predictions row count does not match the density table: "
+            f"{sampled_log_ratio.shape[0]} vs {baseline_total.shape[0]}"
+        )
+    if sampled_log_ratio.shape[1] != sampled_coefficients.shape[1]:
+        raise ValueError(
+            "total-mass predictions sample count does not match the coefficient samples: "
+            f"{sampled_log_ratio.shape[1]} vs {sampled_coefficients.shape[1]}"
+        )
+    sampled_targets = baseline_total[:, None] * np.exp(sampled_log_ratio)
+    mean_targets = baseline_total * np.exp(mean_log_ratio)
+    return sampled_targets.astype(np.float32), mean_targets.astype(np.float32)
+
+
 def _build_summary_arrays(
     *,
     table: np.lib.npyio.NpzFile,
@@ -209,11 +236,23 @@ def _build_summary_arrays(
     central_radius_kpc: float,
     bar_half_angle_deg: float,
     sample_batch_size: int,
+    total_mass_predictions: np.lib.npyio.NpzFile | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, np.ndarray], dict[str, np.ndarray]]:
     truth_mass, baseline_mass = _mass_grids(table)
     posterior_mean_mass = predictions["posterior_mean_mass"].astype(np.float32)
     metadata = table["metadata"].astype(np.float32)
     sampled_coefficients = predictions["sampled_coefficients"].astype(np.float32)
+    sampled_total_targets = None
+    if total_mass_predictions is not None:
+        sampled_total_targets, mean_total_targets = _total_mass_targets(
+            table,
+            sampled_coefficients,
+            total_mass_predictions,
+        )
+        posterior_mean_mass = _rescale_rows_to_total_mass(
+            posterior_mean_mass,
+            mean_total_targets,
+        )
     row_scales = _row_temperature_scales(
         metadata,
         _temperature_scales_by_inclination(final_metrics),
@@ -236,6 +275,7 @@ def _build_summary_arrays(
         baseline_grid_mass_msun=table["baseline_grid_mass_msun"].astype(np.float32),
         row_scales=row_scales,
         batch_size=sample_batch_size,
+        target_total_mass_msun=sampled_total_targets,
     ):
         for name, fn in summary_functions.items():
             sample_summaries[name].append(fn(sample_mass))
@@ -256,6 +296,7 @@ def build_metrics(
     central_radius_kpc: float,
     bar_half_angle_deg: float,
     sample_batch_size: int,
+    total_mass_predictions: np.lib.npyio.NpzFile | None = None,
 ) -> dict[str, Any]:
     split = table["split"].astype(str)
     metadata = table["metadata"].astype(np.float32)
@@ -273,6 +314,7 @@ def build_metrics(
         central_radius_kpc=central_radius_kpc,
         bar_half_angle_deg=bar_half_angle_deg,
         sample_batch_size=sample_batch_size,
+        total_mass_predictions=total_mass_predictions,
     )
     global_scale, global_val_coverage = _select_global_scale(
         sample_summaries,
@@ -350,6 +392,7 @@ def build_metrics(
     return {
         "selected_run_id": final_metrics["selected_model"]["run_id"],
         "target_coverage": TARGET_COVERAGE,
+        "total_mass_correction_applied": total_mass_predictions is not None,
         "n_val": int(np.sum(val_mask)),
         "n_test": int(np.sum(test_mask)),
         "global_physical_temperature_scale": global_scale,
@@ -375,6 +418,8 @@ def _write_markdown(path: Path, metrics: dict[str, Any]) -> None:
         "per-summary + inclination temperature.",
         "",
         f"- selected run: `{metrics['selected_run_id']}`",
+        f"- total-mass correction applied: "
+        f"`{'yes' if metrics.get('total_mass_correction_applied') else 'no'}`",
         f"- validation rows: `{metrics['n_val']}`",
         f"- test rows: `{metrics['n_test']}`",
         f"- target coverage: `{metrics['target_coverage']:.2f}`",
@@ -446,11 +491,15 @@ def _write_markdown(path: Path, metrics: dict[str, Any]) -> None:
 def main() -> None:
     args = parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    with (
-        np.load(args.density_table) as table,
-        np.load(args.pca) as pca,
-        np.load(args.predictions) as predictions,
-    ):
+    with contextlib.ExitStack() as stack:
+        table = stack.enter_context(np.load(args.density_table))
+        pca = stack.enter_context(np.load(args.pca))
+        predictions = stack.enter_context(np.load(args.predictions))
+        total_mass_predictions = (
+            stack.enter_context(np.load(args.total_mass_predictions))
+            if args.total_mass_predictions is not None
+            else None
+        )
         metrics = build_metrics(
             table=table,
             pca=pca,
@@ -459,6 +508,7 @@ def main() -> None:
             central_radius_kpc=args.central_radius_kpc,
             bar_half_angle_deg=args.bar_half_angle_deg,
             sample_batch_size=args.sample_batch_size,
+            total_mass_predictions=total_mass_predictions,
         )
     (args.output_dir / "milestone2b_physical_summary_calibration_metrics.json").write_text(
         json.dumps(metrics, indent=2, sort_keys=True),

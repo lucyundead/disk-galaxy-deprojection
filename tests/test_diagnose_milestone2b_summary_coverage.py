@@ -2,7 +2,10 @@ import json
 import sys
 
 from scripts import diagnose_milestone2b_summary_coverage
-from tests.test_report_milestone2b_physical_summaries import _write_tiny_physical_inputs
+from tests.test_report_milestone2b_physical_summaries import (
+    _write_tiny_physical_inputs,
+    _write_tiny_total_mass_predictions,
+)
 
 
 def test_diagnose_milestone2b_summary_coverage_writes_metrics_and_markdown(
@@ -85,3 +88,51 @@ def test_diagnose_milestone2b_summary_coverage_writes_metrics_and_markdown(
     assert "Galaxy-Bootstrap 95% CI" in markdown
     assert "Total-Mass Constraint Contribution" in markdown
     assert "## Decision" in markdown
+
+
+def test_diagnose_milestone2b_summary_coverage_applies_total_mass_correction(
+    tmp_path,
+    monkeypatch,
+):
+    density_path, pca_path, predictions_path, final_metrics_path = _write_tiny_physical_inputs(
+        tmp_path,
+    )
+    total_mass_path = _write_tiny_total_mass_predictions(tmp_path)
+    output_dir = tmp_path / "coverage_diagnostics_corrected"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "diagnose_milestone2b_summary_coverage.py",
+            "--density-table",
+            str(density_path),
+            "--pca",
+            str(pca_path),
+            "--predictions",
+            str(predictions_path),
+            "--final-evaluation-metrics",
+            str(final_metrics_path),
+            "--total-mass-predictions",
+            str(total_mass_path),
+            "--output-dir",
+            str(output_dir),
+            "--sample-batch-size",
+            "2",
+            "--bootstrap-draws",
+            "50",
+            "--seed",
+            "123",
+        ],
+    )
+
+    diagnose_milestone2b_summary_coverage.main()
+
+    metrics = json.loads(
+        (output_dir / "milestone2b_summary_coverage_diagnostics_metrics.json").read_text()
+    )
+    assert metrics["total_mass_correction_applied"] is True
+    assert "radial_profile" in metrics["summary_coverage"]
+    markdown = (
+        output_dir / "milestone2b_summary_coverage_diagnostics.md"
+    ).read_text()
+    assert "total-mass correction applied: `yes`" in markdown

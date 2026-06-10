@@ -183,6 +183,8 @@ summary calibration from selected MDN posterior samples.
 * `scripts/diagnose\\\_milestone2b\\\_summary\\\_coverage.py`: galaxy-bootstrap coverage
 confidence intervals, bias/spread decomposition, and total-mass constraint
 diagnostics for the physical summaries.
+* `scripts/train\\\_total\\\_mass\\\_correction.py`: scalar total-mass correction head
+that predicts `log(M\\\_true / M\\\_baseline)` per row with uncertainty.
 
 ## Cluster And Data Rules
 
@@ -390,6 +392,50 @@ preserves baseline total mass, this is an uncorrectable floor: it explains
 about 77 percent of the observed radial-profile bias magnitude (correlation
 `0.60` between constraint-implied and observed bias).
 
+### Total-Mass Correction
+
+Script:
+
+* `scripts/train\\\_total\\\_mass\\\_correction.py`
+
+Artifacts:
+
+* `outputs/tng50\\\_milestone2b/total\\\_mass\\\_correction/` (model, normalization,
+predictions, metrics)
+* `outputs/tng50\\\_milestone2b/milestone2b\\\_summary\\\_coverage\\\_diagnostics\\\_mass\\\_corrected/`
+* `outputs/tng50\\\_milestone2b/milestone2b\\\_physical\\\_summary\\\_calibration\\\_mass\\\_corrected/`
+
+This is the structural fix recommended by the coverage diagnostics. A small
+1-component MDN head (same features as the PCA residual MDN: pooled log image,
+geometry metadata, log image/baseline masses) predicts
+`log(M\\\_true / M\\\_baseline)` per row with uncertainty. The evaluation stack
+(`calibrate`/`diagnose` scripts) accepts `--total-mass-predictions` and then
+rescales every posterior sample grid to its own sampled target total mass, and
+the posterior-mean grid to the mean predicted total mass, instead of pinning
+all of them to the baseline total.
+
+Key held-out results (seed `20260610`, 128 samples, matched to the selected
+MDN run):
+
+* test total-mass fractional MAE: `0.0453` (baseline-pinned) to `0.0218`
+(corrected); log-ratio 68 percent coverage `0.632`;
+* radial-profile posterior-mean MAE improves `25.0%` (`5.69e8` to `4.27e8`
+Msun); vertical-profile posterior-mean MAE improves `27.5%` (`7.47e8` to
+`5.42e8` Msun); fraction/shape summaries unchanged, as expected for a global
+rescaling;
+* vertical-profile mean bias halves (`mean z -0.635` to `-0.325`, 95 percent
+CI now contains 0) and its decision moves from bias-dominated to
+spread-miscalibrated;
+* radial-profile bias flips sign and shrinks (`-0.444` to `+0.346`); the
+remaining radial bias is no longer aligned with the total-mass offset
+(correlation drops from `0.60` to `0.21`);
+* coverage decisions: 5 of 6 summaries consistent with calibrated; the
+vertical profile is now classified spread-miscalibrated (`0.819`, CI
+`[0.687, 0.930]`);
+* the largest remaining significant bias is the central mass fraction
+(`mean z +0.928`, CI `[0.327, 1.583]`), a shape bias that total-mass
+rescaling cannot and did not change.
+
 ## Current Git State To Expect
 
 The last clean checkpoint before the physical-summary calibration work was:
@@ -398,15 +444,16 @@ The last clean checkpoint before the physical-summary calibration work was:
 a42fa1a Add Milestone 2b PCA residual evaluation
 ```
 
-The physical-summary calibration script, its tests, this handoff document, and
-the README pointer were committed as:
+Recent checkpoints:
 
 ```text
 e28e117 Add Milestone 2b physical summary calibration
+2c661e3 Add Milestone 2b summary coverage diagnostics
 ```
 
-The summary coverage diagnostics script, its test, and the handoff updates in
-this section are the next commit after that checkpoint.
+The total-mass correction head, the `--total-mass-predictions` plumbing in the
+calibrate/diagnose scripts, their tests, and the handoff updates in this
+section are the next commit after those checkpoints.
 
 Always run:
 
@@ -428,8 +475,8 @@ Before this handoff doc was created, the current code state passed:
 with:
 
 * `ruff`: all checks passed;
-* `pytest`: `92 passed in 32.06s` (including the summary coverage diagnostics
-test).
+* `pytest`: `94 passed in 32.56s` (including the summary coverage diagnostics
+and total-mass correction tests).
 
 After editing documentation, rerun at least:
 
@@ -451,29 +498,36 @@ per-summary temperature calibration is already statistically consistent with
 the 0.68 target for 5 of 6 summaries. Fitting a more expressive uncertainty
 model on 13 validation galaxies would chase sampling noise.
 
-The diagnostics instead point at posterior-mean bias, with one dominant and
-correctable source: the baseline overestimates total grid mass by 3.0-4.5
-percent, the residual correction preserves baseline total mass by construction,
-and this constraint explains about 77 percent of the radial-profile bias.
+The total-mass correction recommended by the diagnostics is now implemented and
+verified (see "Total-Mass Correction" above): radial and vertical profile
+posterior-mean MAE improved by 25.0 and 27.5 percent, the vertical profile left
+the bias-dominated regime, and 5 of 6 summaries are statistically consistent
+with calibrated coverage at the 13-galaxy resolution limit.
 
-Recommended next task, in order:
+Remaining issues, in priority order:
 
-1. Relax the total-mass constraint with a scalar total-mass correction: predict
-`log(M\\\_true / M\\\_baseline)` per row (with uncertainty) from the existing
-geometry/image features, either as one extra MDN output dimension or as a
-separate small head, and rescale corrected grids to the predicted total mass
-instead of the baseline total mass.
-2. Re-run the physical summary evaluation, calibration, and coverage
-diagnostics to confirm: radial-profile and vertical-profile mean bias should
-shrink substantially, and the vertical profile should leave the bias-dominated
-regime.
-3. Only if significant miscoverage remains after de-biasing, revisit a
-lightweight per-summary variance model, fitted leave-one-galaxy-out on
-validation.
+1. Central-mass-fraction bias (`mean z +0.928`, significant): the posterior
+overpredicts central concentration. This is a shape bias inside the PCA
+residual subspace, not a normalization problem. Investigate at the residual
+model level: more PCA components, richer central-image features for the
+coefficient MDN, or a dedicated central-concentration correction analogous to
+the total-mass head.
+2. Vertical-profile spread (`0.819` coverage, spread-miscalibrated): a slightly
+smaller per-summary temperature fitted leave-one-galaxy-out on validation
+should suffice; no new model needed.
+3. Bar-frame m=2 bias (`mean z -0.374`, significant but moderate): the
+posterior underpredicts m=2 amplitude; revisit together with item 1 since both
+are bar-structure shape biases.
+
+Only if these shape biases resist residual-model improvements should a larger
+3D model be considered.
 
 Keep posterior-mean comparisons against the existing MDN and deterministic PCA
 baselines, and keep reporting MAE, 68 percent coverage with galaxy-bootstrap
 CIs, and interval width by inclination, bar viewing angle, and summary family.
+Run the corrected evaluation by passing
+`--total-mass-predictions outputs/tng50\\\_milestone2b/total\\\_mass\\\_correction/total\\\_mass\\\_correction\\\_predictions.npz`
+to the calibrate and diagnose scripts.
 
 Do not interpret point-estimate coverage differences smaller than the bootstrap
 CI width as real; 13 held-out galaxies cannot resolve them.
