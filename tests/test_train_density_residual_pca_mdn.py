@@ -125,3 +125,43 @@ def test_train_density_residual_pca_mdn_writes_posterior_outputs(tmp_path):
     predictions = np.load(output_dir / "density_residual_pca_mdn_predictions.npz")
     assert predictions["sampled_coefficients"].shape == (8, 5, 3)
     assert predictions["posterior_mean_delta_mass"].shape == (8, 2, 4, 2)
+
+
+def test_train_density_residual_pca_mdn_accepts_central_features(tmp_path):
+    pca_path, density_path = _write_tiny_probabilistic_inputs(tmp_path)
+    output_dir = tmp_path / "pca_mdn_central"
+
+    subprocess.run(
+        [
+            sys.executable,
+            "scripts/train_density_residual_pca_mdn.py",
+            "--pca",
+            str(pca_path),
+            "--density-table",
+            str(density_path),
+            "--output-dir",
+            str(output_dir),
+            "--epochs",
+            "2",
+            "--hidden-dim",
+            "8",
+            "--image-feature-size",
+            "4",
+            "--central-pixel-scale-kpc",
+            "0.5",
+            "--batch-size",
+            "2",
+            "--n-components",
+            "1",
+            "--n-samples",
+            "3",
+            "--device",
+            "cpu",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    metrics = json.loads((output_dir / "density_residual_pca_mdn_metrics.json").read_text())
+    assert metrics["central_pixel_scale_kpc"] == 0.5

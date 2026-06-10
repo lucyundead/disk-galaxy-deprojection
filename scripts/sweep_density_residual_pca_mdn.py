@@ -28,6 +28,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=200)
     parser.add_argument("--hidden-dim", type=int, default=128)
     parser.add_argument("--image-feature-size", type=int, default=24)
+    parser.add_argument("--central-pixel-scale-kpc", type=float, default=None)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--n-samples", type=int, default=128)
     parser.add_argument("--learning-rate", type=float, default=1.0e-3)
@@ -228,6 +229,8 @@ def _run_training(args: argparse.Namespace, *, seed: int, n_components: int, run
         "--device",
         args.device,
     ]
+    if args.central_pixel_scale_kpc is not None:
+        command += ["--central-pixel-scale-kpc", str(args.central_pixel_scale_kpc)]
     subprocess.run(command, check=True)
 
 

@@ -28,6 +28,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=200)
     parser.add_argument("--hidden-dim", type=int, default=128)
     parser.add_argument("--image-feature-size", type=int, default=24)
+    parser.add_argument("--central-pixel-scale-kpc", type=float, default=None)
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--n-components", type=int, default=3)
     parser.add_argument("--n-samples", type=int, default=128)
@@ -144,6 +145,7 @@ def main() -> None:
             pca["metadata"].astype(np.float32),
             baseline_grid_mass_msun=table["baseline_grid_mass_msun"].astype(np.float32),
             image_feature_size=args.image_feature_size,
+            central_pixel_scale_kpc=args.central_pixel_scale_kpc,
         )
         coefficients = pca["coefficients"].astype(np.float32)
         x_all, x_mean, x_scale = standardize_with_train(features, train_mask)
@@ -226,6 +228,11 @@ def main() -> None:
         metrics: dict[str, float | int | str | bool] = {
             "device": str(device),
             "image_feature_size": int(args.image_feature_size),
+            "central_pixel_scale_kpc": (
+                float(args.central_pixel_scale_kpc)
+                if args.central_pixel_scale_kpc is not None
+                else None
+            ),
             "hidden_dim": int(args.hidden_dim),
             "epochs": int(args.epochs),
             "best_epoch": int(best_epoch),
@@ -257,6 +264,7 @@ def main() -> None:
                 "hidden_dim": args.hidden_dim,
                 "n_components": args.n_components,
                 "image_feature_size": args.image_feature_size,
+                "central_pixel_scale_kpc": args.central_pixel_scale_kpc,
             },
             args.output_dir / "density_residual_pca_mdn.pt",
         )

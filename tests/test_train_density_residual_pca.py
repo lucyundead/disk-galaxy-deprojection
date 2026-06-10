@@ -5,7 +5,11 @@ import sys
 import numpy as np
 
 from scripts.analyze_tng50_density_residuals import cylindrical_bin_volumes_from_edges
-from scripts.train_density_residual_pca import average_pool_images, make_density_residual_features
+from scripts.train_density_residual_pca import (
+    average_pool_images,
+    make_central_image_features,
+    make_density_residual_features,
+)
 
 
 def _write_tiny_training_inputs(tmp_path):
@@ -91,6 +95,58 @@ def test_feature_builder_pools_images_and_adds_mass_features():
     assert pooled.shape == (2, 2, 2)
     assert features.shape == (2, 2 * 2 + 3 + 2)
     assert np.all(np.isfinite(features))
+
+
+def test_central_image_features_track_concentration_and_inclination():
+    size = 32
+    pixel_scale = 0.5
+    coords = (np.arange(size, dtype=np.float32) - 0.5 * (size - 1)) * pixel_scale
+    x_grid = coords[None, :]
+    y_grid = coords[:, None]
+    sigma = 1.0
+    face_on = np.exp(-(x_grid**2 + y_grid**2) / (2.0 * sigma**2)).astype(np.float32)
+    inclined = np.exp(-(x_grid**2 + (y_grid / 0.5) ** 2) / (2.0 * sigma**2)).astype(np.float32)
+    images = np.stack((face_on, inclined))
+    inclinations = np.array([0.0, 60.0], dtype=np.float32)
+
+    features = make_central_image_features(
+        images,
+        inclinations,
+        pixel_scale_kpc=pixel_scale,
+    )
+
+    assert features.shape == (2, 5)
+    assert np.all(np.isfinite(features))
+    log_fractions = features[:, :4]
+    assert np.all(np.diff(log_fractions, axis=1) >= 0.0)
+    shape_ratio = features[:, 4]
+    assert abs(shape_ratio[0] - 1.0) < 0.1
+    assert abs(shape_ratio[1] - 0.5) < 0.1
+    fractions = 10.0 ** log_fractions
+    assert abs(fractions[1, 1] - fractions[0, 1]) < 0.05
+
+
+def test_feature_builder_appends_central_features():
+    images = np.arange(2 * 4 * 4, dtype=np.float32).reshape(2, 4, 4)
+    metadata = np.ones((2, 3), dtype=np.float32)
+    baseline_mass = np.array([10.0, 20.0], dtype=np.float32)
+
+    base = make_density_residual_features(
+        images,
+        metadata,
+        baseline_grid_mass_msun=baseline_mass,
+        image_feature_size=2,
+    )
+    with_central = make_density_residual_features(
+        images,
+        metadata,
+        baseline_grid_mass_msun=baseline_mass,
+        image_feature_size=2,
+        central_pixel_scale_kpc=0.5,
+    )
+
+    assert with_central.shape == (2, base.shape[1] + 5)
+    assert np.all(np.isfinite(with_central))
 
 
 def test_train_density_residual_pca_script_writes_model_predictions_and_metrics(tmp_path):

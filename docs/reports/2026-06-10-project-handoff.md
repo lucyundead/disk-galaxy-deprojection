@@ -436,6 +436,66 @@ vertical profile is now classified spread-miscalibrated (`0.819`, CI
 (`mean z +0.928`, CI `[0.327, 1.583]`), a shape bias that total-mass
 rescaling cannot and did not change.
 
+### Inclination-Aware Central Features (And A PCA-64 Negative Result)
+
+Code:
+
+* `make\\\_central\\\_image\\\_features` in `scripts/train\\\_density\\\_residual\\\_pca.py`:
+elliptical-aperture flux fractions (semi-major `1, 2, 4, 8 kpc`, axis ratio
+`cos i`, apertures oriented with the apparent minor axis along image axis 0
+per the `dgdp.projection` convention) plus a flux-weighted minor/major
+second-moment ratio inside the `8 kpc` ellipse.
+* `--central-pixel-scale-kpc` flag on
+`scripts/train\\\_density\\\_residual\\\_pca\\\_mdn.py` and
+`scripts/sweep\\\_density\\\_residual\\\_pca\\\_mdn.py` (use `0.35` for the
+Milestone 2b images; off by default).
+
+Artifacts:
+
+* `outputs/tng50\\\_milestone2b/density\\\_residual\\\_pca\\\_mdn\\\_sweep\\\_central/`
+(32-component basis + central features; selected run
+`components\\\_1\\\_seed\\\_20260609`)
+* `outputs/tng50\\\_milestone2b/milestone2b\\\_final\\\_evaluation\\\_central/`
+* `outputs/tng50\\\_milestone2b/milestone2b\\\_summary\\\_coverage\\\_diagnostics\\\_central\\\_mass\\\_corrected/`
+* `outputs/tng50\\\_milestone2b/density\\\_residual\\\_diagnostics\\\_pca64/` and
+`...\\\_sweep\\\_central\\\_pca64/`, `...\\\_final\\\_evaluation\\\_central\\\_pca64/`,
+`...\\\_diagnostics\\\_central\\\_pca64\\\_mass\\\_corrected/` (tested and rejected, see
+below)
+
+Motivation: attribution checks showed the central-mass-fraction bias was
+concentrated at `i = 60 deg` (MDN bias `-0.0157` there vs `-0.0027` at
+`20 deg`), the PCA basis could represent most of the central structure
+(oracle projection bias only `-0.0029`), and regression-to-mean was minor.
+
+Held-out central-mass-fraction results (signed bias, total-mass correction
+applied; truth mean fraction `0.318`):
+
+|Configuration|test bias|i=20|i=40|i=60|mean z|
+|-|-:|-:|-:|-:|-:|
+|geometric baseline|-0.0268|-0.0196|-0.0236|-0.0373|n/a|
+|MDN, no central features|-0.0076|-0.0027|-0.0045|-0.0157|+0.93|
+|MDN + central features (32c)|-0.0055|-0.0012|-0.0023|-0.0129|+0.63|
+|MDN + central features (64c)|-0.0068|-0.0008|-0.0030|-0.0167|+0.79|
+|oracle ceiling (32c basis)|-0.0029|-0.0011|-0.0023|-0.0054|n/a|
+
+Conclusions:
+
+* central features help everywhere; at `i = 20/40 deg` the MDN now sits at
+the 32-component representation ceiling;
+* a 64-component basis raises the ceiling (EVR `0.925` to `0.960`; oracle
+`60 deg` bias `-0.0054` to `-0.0033`) but the end-to-end MDN gets worse
+(`60 deg` bias `-0.0167`, global cell-mass MAE `1.051e6` vs `1.029e6 Msun`):
+with 342 training rows, doubling the coefficient count costs more in
+estimation error than the richer basis gains. PCA-64 is rejected;
+* the adopted configuration is the 32-component basis with central features:
+selected run `components\\\_1\\\_seed\\\_20260609` in
+`density\\\_residual\\\_pca\\\_mdn\\\_sweep\\\_central`, best cell-mass MAE `1.029e6
+Msun`, central-fraction mean z `+0.63` (from `+0.93`), all six summary
+coverage decisions at "consistent with calibrated" except vertical RMS
+height (spread-miscalibrated, scale fix);
+* a gap to the ceiling remains only at `i = 60 deg` (`-0.0129` vs
+`-0.0054`).
+
 ## Current Git State To Expect
 
 The last clean checkpoint before the physical-summary calibration work was:
@@ -449,10 +509,11 @@ Recent checkpoints:
 ```text
 e28e117 Add Milestone 2b physical summary calibration
 2c661e3 Add Milestone 2b summary coverage diagnostics
+1a8fc16 Add scalar total-mass correction head
 ```
 
-The total-mass correction head, the `--total-mass-predictions` plumbing in the
-calibrate/diagnose scripts, their tests, and the handoff updates in this
+The central-feature builder, the `--central-pixel-scale-kpc` plumbing in the
+MDN training and sweep scripts, their tests, and the handoff updates in this
 section are the next commit after those checkpoints.
 
 Always run:
@@ -475,8 +536,8 @@ Before this handoff doc was created, the current code state passed:
 with:
 
 * `ruff`: all checks passed;
-* `pytest`: `94 passed in 32.56s` (including the summary coverage diagnostics
-and total-mass correction tests).
+* `pytest`: `97 passed in 38.48s` (including the summary coverage diagnostics,
+total-mass correction, and central-feature tests).
 
 After editing documentation, rerun at least:
 
@@ -504,20 +565,29 @@ posterior-mean MAE improved by 25.0 and 27.5 percent, the vertical profile left
 the bias-dominated regime, and 5 of 6 summaries are statistically consistent
 with calibrated coverage at the 13-galaxy resolution limit.
 
+Status update: the central-feature work (see above) addressed the
+central-mass-fraction priority. Note the bias sign: positive `mean z` means
+the model UNDERpredicts central concentration (truth is more concentrated
+than the posterior). The adopted configuration is now the 32-component basis
+with central features (`density\\\_residual\\\_pca\\\_mdn\\\_sweep\\\_central`, run
+`components\\\_1\\\_seed\\\_20260609`), with the total-mass correction applied at
+evaluation time. More PCA components were tested and rejected (estimation
+error beats basis richness at 342 training rows).
+
 Remaining issues, in priority order:
 
-1. Central-mass-fraction bias (`mean z +0.928`, significant): the posterior
-overpredicts central concentration. This is a shape bias inside the PCA
-residual subspace, not a normalization problem. Investigate at the residual
-model level: more PCA components, richer central-image features for the
-coefficient MDN, or a dedicated central-concentration correction analogous to
-the total-mass head.
-2. Vertical-profile spread (`0.819` coverage, spread-miscalibrated): a slightly
-smaller per-summary temperature fitted leave-one-galaxy-out on validation
-should suffice; no new model needed.
-3. Bar-frame m=2 bias (`mean z -0.374`, significant but moderate): the
-posterior underpredicts m=2 amplitude; revisit together with item 1 since both
-are bar-structure shape biases.
+1. Central-mass-fraction residual gap at `i = 60 deg` only (`-0.0129` vs the
+`-0.0054` basis ceiling; absolute scale: truth fraction `0.318`). If the
+downstream gas-dynamics application needs better, the targeted option is a
+dedicated central-fraction correction head with uncertainty (same pattern as
+the total-mass head: predict the logit-fraction correction, apply a
+mass-conserving inner/outer rescale), trained with the central elliptical
+features. Otherwise document the `60 deg` limitation.
+2. Bar-frame m=2 bias (`mean z -0.374`, posterior underpredicts m=2
+amplitude): unchanged by central features; another candidate for either
+richer bar-region features or acceptance.
+3. Vertical RMS height spread (overcovered): per-summary temperature scale
+fitted on validation suffices; no new model.
 
 Only if these shape biases resist residual-model improvements should a larger
 3D model be considered.
