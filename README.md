@@ -3,6 +3,9 @@
 This repository builds a baseline-plus-residual probabilistic benchmark for
 deprojecting barred-galaxy stellar mass structure from S4G-like images.
 
+For project background, current Milestone 2b status, and continuation guidance,
+start with `docs/reports/2026-06-10-project-handoff.md`.
+
 Milestone 1 predicts posterior residuals for physical summaries:
 
 - radial stellar mass profile

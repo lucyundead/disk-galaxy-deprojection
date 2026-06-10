@@ -7,15 +7,11 @@ from scripts import report_milestone2b_physical_summaries
 from scripts.analyze_tng50_density_residuals import cylindrical_bin_volumes_from_edges
 
 
-def test_report_milestone2b_physical_summaries_writes_metrics_and_markdown(
-    tmp_path,
-    monkeypatch,
-):
+def _write_tiny_physical_inputs(tmp_path):
     density_path = tmp_path / "density_table.npz"
     pca_path = tmp_path / "pca.npz"
     predictions_path = tmp_path / "predictions.npz"
     final_metrics_path = tmp_path / "final_metrics.json"
-    output_dir = tmp_path / "physical"
 
     n_rows = 5
     r_edges = np.array([0.0, 1.0, 3.0], dtype=np.float32)
@@ -87,6 +83,17 @@ def test_report_milestone2b_physical_summaries_writes_metrics_and_markdown(
         ),
         encoding="utf-8",
     )
+    return density_path, pca_path, predictions_path, final_metrics_path
+
+
+def test_report_milestone2b_physical_summaries_writes_metrics_and_markdown(
+    tmp_path,
+    monkeypatch,
+):
+    density_path, pca_path, predictions_path, final_metrics_path = _write_tiny_physical_inputs(
+        tmp_path,
+    )
+    output_dir = tmp_path / "physical"
     monkeypatch.setattr(
         sys,
         "argv",
