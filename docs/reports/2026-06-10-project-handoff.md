@@ -180,6 +180,9 @@ Important scripts:
 from 3D density predictions.
 * `scripts/calibrate\\\_milestone2b\\\_physical\\\_summaries.py`: post-hoc physical
 summary calibration from selected MDN posterior samples.
+* `scripts/diagnose\\\_milestone2b\\\_summary\\\_coverage.py`: galaxy-bootstrap coverage
+confidence intervals, bias/spread decomposition, and total-mass constraint
+diagnostics for the physical summaries.
 
 ## Cluster And Data Rules
 
@@ -349,6 +352,44 @@ summaries, especially central mass fraction and m=2;
 * post-hoc temperature calibration alone is not enough for a fully calibrated
 physical-summary posterior.
 
+### Summary Coverage Diagnostics
+
+Script:
+
+* `scripts/diagnose\\\_milestone2b\\\_summary\\\_coverage.py`
+
+Artifacts:
+
+* `outputs/tng50\\\_milestone2b/milestone2b\\\_summary\\\_coverage\\\_diagnostics/milestone2b\\\_summary\\\_coverage\\\_diagnostics.md`
+* `outputs/tng50\\\_milestone2b/milestone2b\\\_summary\\\_coverage\\\_diagnostics/milestone2b\\\_summary\\\_coverage\\\_diagnostics\\\_metrics.json`
+
+This diagnostic quantifies how much of the reported physical-summary
+miscoverage is statistically meaningful given that held-out coverage is
+estimated from only 13 test galaxies (117 correlated projection rows). It adds
+galaxy-level cluster bootstrap confidence intervals on coverage, a per-summary
+bias/spread decomposition (z-scores and PIT of the uncalibrated samples), and a
+direct measurement of the total-mass constraint contribution.
+
+Key results (per-summary temperature mode, 2000 bootstrap draws, seed
+`20260610`):
+
+* coverage 95 percent CIs contain the 0.68 target for 5 of 6 summaries,
+including the radial profile (`0.611`, CI `[0.544, 0.687]`); the apparent
+radial undercoverage is not statistically significant at the 13-galaxy sample
+size;
+* only the vertical mass profile is significantly miscovered (`0.800`, CI
+`[0.682, 0.899]`), and its decomposition is bias-dominated (`mean z = -0.635`,
+bias ratio `0.53`);
+* several summaries carry statistically significant posterior-mean bias even
+where coverage looks acceptable: radial profile (`mean z = -0.444`), vertical
+profile (`-0.635`), central mass fraction (`+0.928`), bar-frame m=2 (`-0.374`);
+wide intervals are hiding real bias;
+* the baseline systematically overestimates total grid mass (mean fractional
+offset `-0.030` to `-0.045` per split), and because the residual correction
+preserves baseline total mass, this is an uncorrectable floor: it explains
+about 77 percent of the observed radial-profile bias magnitude (correlation
+`0.60` between constraint-implied and observed bias).
+
 ## Current Git State To Expect
 
 The last clean checkpoint before the physical-summary calibration work was:
@@ -357,15 +398,15 @@ The last clean checkpoint before the physical-summary calibration work was:
 a42fa1a Add Milestone 2b PCA residual evaluation
 ```
 
-At the time this handoff was written, the current uncommitted code changes were
-the physical-summary calibration script and tests:
+The physical-summary calibration script, its tests, this handoff document, and
+the README pointer were committed as:
 
-* `scripts/calibrate\\\_milestone2b\\\_physical\\\_summaries.py`
-* `tests/test\\\_calibrate\\\_milestone2b\\\_physical\\\_summaries.py`
-* `tests/test\\\_report\\\_milestone2b\\\_physical\\\_summaries.py`
+```text
+e28e117 Add Milestone 2b physical summary calibration
+```
 
-This handoff file and the README pointer may also be uncommitted depending on
-whether the current user commits them before handoff.
+The summary coverage diagnostics script, its test, and the handoff updates in
+this section are the next commit after that checkpoint.
 
 Always run:
 
@@ -387,7 +428,8 @@ Before this handoff doc was created, the current code state passed:
 with:
 
 * `ruff`: all checks passed;
-* `pytest`: `91 passed in 33.65s`.
+* `pytest`: `92 passed in 32.06s` (including the summary coverage diagnostics
+test).
 
 After editing documentation, rerun at least:
 
@@ -402,27 +444,37 @@ if code files are still part of the uncommitted diff.
 
 Do not start a larger full-3D generator yet.
 
-The next modeling step should directly target physical-summary uncertainty. The
-calibration result says the current PCA-coefficient posterior can be useful, but
-its uncertainty does not transfer cleanly to all physical summaries.
+The earlier recommendation to train a summary-specific uncertainty model is now
+superseded by the summary coverage diagnostics. With 13 held-out galaxies the
+coverage standard error is roughly 0.08-0.13, and the bootstrap CIs show that
+per-summary temperature calibration is already statistically consistent with
+the 0.68 target for 5 of 6 summaries. Fitting a more expressive uncertainty
+model on 13 validation galaxies would chase sampling noise.
 
-Recommended next task:
+The diagnostics instead point at posterior-mean bias, with one dominant and
+correctable source: the baseline overestimates total grid mass by 3.0-4.5
+percent, the residual correction preserves baseline total mass by construction,
+and this constraint explains about 77 percent of the radial-profile bias.
 
-1. Add a lightweight summary-specific uncertainty model or calibration head.
-2. Train/calibrate it on validation physical summaries, not only PCA
-coefficients.
-3. Condition uncertainty on geometry, especially inclination.
-4. Keep posterior mean comparison against the existing MDN and deterministic PCA
-baselines.
-5. Report physical-summary MAE, 68 percent coverage, and interval width by:
-inclination, bar viewing angle, and summary family.
+Recommended next task, in order:
 
-Candidate minimal designs:
+1. Relax the total-mass constraint with a scalar total-mass correction: predict
+`log(M\\\_true / M\\\_baseline)` per row (with uncertainty) from the existing
+geometry/image features, either as one extra MDN output dimension or as a
+separate small head, and rescale corrected grids to the predicted total mass
+instead of the baseline total mass.
+2. Re-run the physical summary evaluation, calibration, and coverage
+diagnostics to confirm: radial-profile and vertical-profile mean bias should
+shrink substantially, and the vertical profile should leave the bias-dominated
+regime.
+3. Only if significant miscoverage remains after de-biasing, revisit a
+lightweight per-summary variance model, fitted leave-one-galaxy-out on
+validation.
 
-* independent Gaussian or Student-t residual heads for each summary family;
-* a small heteroscedastic residual model using existing image/geometry features;
-* a calibration model that maps summary family plus geometry to interval scale.
+Keep posterior-mean comparisons against the existing MDN and deterministic PCA
+baselines, and keep reporting MAE, 68 percent coverage with galaxy-bootstrap
+CIs, and interval width by inclination, bar viewing angle, and summary family.
 
-Keep it small. The purpose is to determine whether physically meaningful
-uncertainty can be calibrated before increasing 3D model capacity.
+Do not interpret point-estimate coverage differences smaller than the bootstrap
+CI width as real; 13 held-out galaxies cannot resolve them.
 
