@@ -1,6 +1,6 @@
 # Disk Galaxy Deprojection Project Handoff
 
-Date: 2026-06-10
+Date: 2026-06-11
 
 Workspace: `/home/lucyundead/projects/disk-galaxy-deprojection`
 
@@ -611,6 +611,60 @@ Limitation: the head is capped by genuine m=2 unpredictability from these
 features (head log-delta MAE `0.26` train vs `0.31` test); a `-0.26 sigma`
 residual m=2 bias remains.
 
+### Milestone 2c: Sample Scale-Up To 185 Galaxies
+
+Full report: `docs/reports/milestone2c_sample_scaleup.md`. Config:
+`configs/milestone2c.cluster.toml`. Artifacts:
+`outputs/tng50_milestone2c_clean3d/`.
+
+The sample lifts the "top 64 by stellar mass" cap to 185 galaxies (same
+selection otherwise), giving 1665 rows split 999/333/333 by galaxy
+(111/37/37 galaxies, split seed 20260604). Cluster products (manifest,
+images, density tables) were fetched by a previous session; everything below
+ran locally from the fetched artifacts, with the 2b scripts unmodified (CLI
+path overrides only).
+
+Key results (all held-out test, 37 galaxies / 333 rows):
+
+* adopted configuration: 32-component PCA basis with central features,
+sweep run `components_1_seed_20260608`
+(`density_residual_pca_mdn_sweep_central`), 1-mixture family confirmed;
+* posterior-mean cell-mass MAE `5.815e5 Msun`, 66.2 percent better than the
+geometric baseline (`1.720e6`); raw coefficient coverage `0.702`;
+* PCA-64 re-test: rejected again at 999 training rows; all nine 64-component
+runs are worse end-to-end than the adopted 32-component run (best `5.926e5`
+vs `5.815e5 Msun`) despite the better basis (EVR `0.893` vs `0.831`);
+* total-mass head: fractional MAE `0.0194` to `0.0107`; the 2c baseline is
+already much better behaved than 2b's (`0.0194` vs `0.0453` uncorrected);
+* central-fraction head: bias `-0.0068` to `-0.0018`, coverage `0.703` at
+scale 1.0; the 2b validation-overfit warning does NOT recur at this sample
+size;
+* m=2 head: weight decay `1e-2` re-selected on validation coverage; profile
+MAE `0.0438` to `0.0369`; NOTE: unlike 2b, the uncorrected 2c posterior has
+no significant m=2 bias (mean z `-0.002`), so the head is kept for accuracy
+and protocol continuity only;
+* with all corrections, bias decomposition: radial bias eliminated
+(`-0.355` to `+0.035`), central fraction halved but still significant
+(`+0.942` to `+0.385`, CI `[0.196, 0.574]`) - the 37-galaxy CIs now resolve
+what 2b could not;
+* coverage decisions: 4 of 6 summaries consistent with calibrated; both
+vertical summaries are UNDERcovered (`0.575`, `0.556`) with `std z`
+1.75-1.89 - the per-summary temperature fitted on validation does not
+transfer to test, indicating galaxy-level heterogeneity in vertical spread.
+
+Disk-space note (2026-06-11): the Windows host C: drive filled up during this
+work (the WSL VHDX hit a 19.9 GB high-water mark; training jobs died with
+SIGBUS and the guest FS briefly wedged). Non-adopted sweep prediction npz
+files from 2b and 2c (43 files, 15.7 GB) were MOVED to `E:\dgdp-archive\`
+(Windows path), mirroring project-relative paths; metrics, models, and sweep
+summaries remain in place, and the adopted runs (2b
+`components_1_seed_20260609`, 2c `components_1_seed_20260608`) kept their
+predictions locally. Restoration is a plain copy back. All archived arrays
+are also exactly regenerable by rerunning the sweep with the same seeds.
+VHDX compaction is still pending (needs an elevated shell). Do not run two
+heavy python jobs concurrently in this WSL (7.6 GiB RAM; OOM kills corrupt
+npz/json writes).
+
 ## Current Git State To Expect
 
 The last clean checkpoint before the physical-summary calibration work was:
@@ -632,9 +686,12 @@ b358c76 Add inclination-aware central image features
 f1b7e28 Add central-fraction correction head
 ```
 
-The m=2 amplitude correction head, its `--m2-predictions` plumbing in the
-calibrate/diagnose scripts, their tests, and the handoff updates in this
-section are the next commit after those checkpoints.
+```text
+6062beb Add band-resolved m=2 amplitude correction head
+```
+
+The Milestone 2c artifacts (config, report, and this handoff update) are the
+next commit after those checkpoints. No code changes were needed for 2c.
 
 Always run:
 
@@ -695,26 +752,29 @@ with central features (`density\\\_residual\\\_pca\\\_mdn\\\_sweep\\\_central`, 
 evaluation time. More PCA components were tested and rejected (estimation
 error beats basis richness at 342 training rows).
 
-Remaining issues, in priority order:
+Remaining issues, in priority order (updated for Milestone 2c, which
+supersedes the 2b-era list - the 37-galaxy test set resolves biases the
+13-galaxy set could not):
 
-1. (RESOLVED) Central-mass-fraction bias: the dedicated central-fraction
-correction head (see above) removes it (mean z `+0.163`, CI contains zero;
-`60 deg` bias `-0.0069`, near the basis ceiling). For downstream gas-dynamics
-use, take the head-corrected posterior at temperature scale `1.0`.
-2. (LARGELY RESOLVED) Bar-frame m=2 bias (sign correction: negative mean z
-means the posterior OVERPREDICTS m=2 amplitude): the band-resolved m=2
-amplitude head (see above) removes the geometry/radius bias structure and
-brings raw coverage consistent with target. A `-0.26 sigma` residual bias
-remains, capped by m=2 predictability from current features; accept it or
-revisit only with fundamentally better bar features.
-3. Vertical RMS height spread (overcovered): per-summary temperature scale
-fitted on validation suffices; no new model.
-4. Bar-axis mass fraction picked up a small bias from the m=2 correction
-(mean z `+0.216` to `+0.334`, still consistent with calibrated); watch it if
-the m=2 head is retrained.
-5. Per-summary temperature scales fitted on 13 validation galaxies can
-overfit (see the central-fraction WARNING above). Prefer raw or global
-calibration unless the bootstrap CI clearly demands a per-summary scale.
+1. Vertical spread undercoverage (NEW top priority): both vertical summaries
+are undercovered on 2c (`0.575`, `0.556` vs target `0.68`) with `std z`
+1.75-1.89, and the validation-fitted per-summary temperature does not
+transfer to test. A single scale cannot capture the galaxy-level
+heterogeneity. Candidates: a vertical-specific uncertainty head conditioned
+on inclination and image thickness proxies, or cross-fitted
+(leave-galaxy-out) temperature estimation.
+2. Central-mass-fraction residual bias: after the head, `mean z +0.385`
+(CI `[0.196, 0.574]`) - clearly significant at 2c resolution even though the
+2b equivalent looked resolved. The head still halves the bias and fixes the
+point estimate (`-0.0018`); the remainder likely needs better central
+features or a finer central grid. Keep using scale `1.0` for this summary.
+3. Bar-axis mass fraction coverage sits at the low edge of its CI
+(`0.628`, CI `[0.568, 0.685]`); watch it if the m=2 head is retrained.
+4. The m=2 head is optional on 2c accuracy grounds (no bias to fix in the
+uncorrected posterior); kept for the MAE gain and protocol continuity.
+5. PCA-64 is rejected at both 342 and 999 training rows; do not revisit
+the basis size without an order-of-magnitude more galaxies or a different
+representation (the deficit is estimation error, not representation).
 
 Only if these shape biases resist residual-model improvements should a larger
 3D model be considered.
@@ -727,5 +787,8 @@ Run the corrected evaluation by passing
 to the calibrate and diagnose scripts.
 
 Do not interpret point-estimate coverage differences smaller than the bootstrap
-CI width as real; 13 held-out galaxies cannot resolve them.
+CI width as real; 13 held-out galaxies (2b) cannot resolve them, and even the
+37 held-out galaxies of 2c leave per-summary coverage CIs roughly 0.08-0.25
+wide. For new 2c evaluation runs, use the 2c artifact paths under
+`outputs/tng50_milestone2c_clean3d/` (see the Milestone 2c section above).
 
