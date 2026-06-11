@@ -14,7 +14,9 @@ try:
         DEFAULT_FINAL_METRICS,
         DEFAULT_PCA,
         DEFAULT_PREDICTIONS,
+        _apply_central_fraction_logit_shift,
         _calibrated_sample_batches,
+        _central_radial_mask,
         _fmt,
         _mass_grids,
         _rescale_rows_to_total_mass,
@@ -28,7 +30,9 @@ except ModuleNotFoundError:
         DEFAULT_FINAL_METRICS,
         DEFAULT_PCA,
         DEFAULT_PREDICTIONS,
+        _apply_central_fraction_logit_shift,
         _calibrated_sample_batches,
+        _central_radial_mask,
         _fmt,
         _mass_grids,
         _rescale_rows_to_total_mass,
@@ -49,6 +53,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--predictions", type=Path, default=DEFAULT_PREDICTIONS)
     parser.add_argument("--final-evaluation-metrics", type=Path, default=DEFAULT_FINAL_METRICS)
     parser.add_argument("--total-mass-predictions", type=Path, default=None)
+    parser.add_argument("--central-fraction-predictions", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--central-radius-kpc", type=float, default=2.0)
     parser.add_argument("--bar-half-angle-deg", type=float, default=30.0)
@@ -227,6 +232,34 @@ def _total_mass_targets(
     return sampled_targets.astype(np.float32), mean_targets.astype(np.float32)
 
 
+def _central_fraction_shifts(
+    table: np.lib.npyio.NpzFile,
+    sampled_coefficients: np.ndarray,
+    central_fraction_predictions: np.lib.npyio.NpzFile,
+    central_radius_kpc: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    sampled_shift = central_fraction_predictions["sampled_logit_delta"].astype(np.float32)
+    mean_shift = central_fraction_predictions["mean_logit_delta"].astype(np.float32)
+    head_radius = float(central_fraction_predictions["central_radius_kpc"])
+    if not np.isclose(head_radius, central_radius_kpc):
+        raise ValueError(
+            "central-fraction predictions were trained for radius "
+            f"{head_radius} kpc but the evaluation uses {central_radius_kpc} kpc"
+        )
+    n_rows = int(table["split"].shape[0])
+    if sampled_shift.shape[0] != n_rows:
+        raise ValueError(
+            "central-fraction predictions row count does not match the density table: "
+            f"{sampled_shift.shape[0]} vs {n_rows}"
+        )
+    if sampled_shift.shape[1] != sampled_coefficients.shape[1]:
+        raise ValueError(
+            "central-fraction predictions sample count does not match the coefficient "
+            f"samples: {sampled_shift.shape[1]} vs {sampled_coefficients.shape[1]}"
+        )
+    return sampled_shift, mean_shift
+
+
 def _build_summary_arrays(
     *,
     table: np.lib.npyio.NpzFile,
@@ -237,6 +270,7 @@ def _build_summary_arrays(
     bar_half_angle_deg: float,
     sample_batch_size: int,
     total_mass_predictions: np.lib.npyio.NpzFile | None = None,
+    central_fraction_predictions: np.lib.npyio.NpzFile | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, np.ndarray], dict[str, np.ndarray]]:
     truth_mass, baseline_mass = _mass_grids(table)
     posterior_mean_mass = predictions["posterior_mean_mass"].astype(np.float32)
@@ -252,6 +286,21 @@ def _build_summary_arrays(
         posterior_mean_mass = _rescale_rows_to_total_mass(
             posterior_mean_mass,
             mean_total_targets,
+        )
+    sampled_central_shift = None
+    central_mask = None
+    if central_fraction_predictions is not None:
+        sampled_central_shift, mean_central_shift = _central_fraction_shifts(
+            table,
+            sampled_coefficients,
+            central_fraction_predictions,
+            central_radius_kpc,
+        )
+        central_mask = _central_radial_mask(table["r_edges_kpc"], central_radius_kpc)
+        posterior_mean_mass = _apply_central_fraction_logit_shift(
+            posterior_mean_mass,
+            mean_central_shift,
+            central_mask,
         )
     row_scales = _row_temperature_scales(
         metadata,
@@ -276,6 +325,8 @@ def _build_summary_arrays(
         row_scales=row_scales,
         batch_size=sample_batch_size,
         target_total_mass_msun=sampled_total_targets,
+        central_logit_shift=sampled_central_shift,
+        central_radial_mask=central_mask,
     ):
         for name, fn in summary_functions.items():
             sample_summaries[name].append(fn(sample_mass))
@@ -297,6 +348,7 @@ def build_metrics(
     bar_half_angle_deg: float,
     sample_batch_size: int,
     total_mass_predictions: np.lib.npyio.NpzFile | None = None,
+    central_fraction_predictions: np.lib.npyio.NpzFile | None = None,
 ) -> dict[str, Any]:
     split = table["split"].astype(str)
     metadata = table["metadata"].astype(np.float32)
@@ -315,6 +367,7 @@ def build_metrics(
         bar_half_angle_deg=bar_half_angle_deg,
         sample_batch_size=sample_batch_size,
         total_mass_predictions=total_mass_predictions,
+        central_fraction_predictions=central_fraction_predictions,
     )
     global_scale, global_val_coverage = _select_global_scale(
         sample_summaries,
@@ -393,6 +446,7 @@ def build_metrics(
         "selected_run_id": final_metrics["selected_model"]["run_id"],
         "target_coverage": TARGET_COVERAGE,
         "total_mass_correction_applied": total_mass_predictions is not None,
+        "central_fraction_correction_applied": central_fraction_predictions is not None,
         "n_val": int(np.sum(val_mask)),
         "n_test": int(np.sum(test_mask)),
         "global_physical_temperature_scale": global_scale,
@@ -420,6 +474,8 @@ def _write_markdown(path: Path, metrics: dict[str, Any]) -> None:
         f"- selected run: `{metrics['selected_run_id']}`",
         f"- total-mass correction applied: "
         f"`{'yes' if metrics.get('total_mass_correction_applied') else 'no'}`",
+        f"- central-fraction correction applied: "
+        f"`{'yes' if metrics.get('central_fraction_correction_applied') else 'no'}`",
         f"- validation rows: `{metrics['n_val']}`",
         f"- test rows: `{metrics['n_test']}`",
         f"- target coverage: `{metrics['target_coverage']:.2f}`",
@@ -500,6 +556,11 @@ def main() -> None:
             if args.total_mass_predictions is not None
             else None
         )
+        central_fraction_predictions = (
+            stack.enter_context(np.load(args.central_fraction_predictions))
+            if args.central_fraction_predictions is not None
+            else None
+        )
         metrics = build_metrics(
             table=table,
             pca=pca,
@@ -509,6 +570,7 @@ def main() -> None:
             bar_half_angle_deg=args.bar_half_angle_deg,
             sample_batch_size=args.sample_batch_size,
             total_mass_predictions=total_mass_predictions,
+            central_fraction_predictions=central_fraction_predictions,
         )
     (args.output_dir / "milestone2b_physical_summary_calibration_metrics.json").write_text(
         json.dumps(metrics, indent=2, sort_keys=True),

@@ -100,6 +100,21 @@ def _write_tiny_total_mass_predictions(tmp_path):
     return path
 
 
+def _write_tiny_central_fraction_predictions(tmp_path):
+    path = tmp_path / "central_fraction_predictions.npz"
+    rng = np.random.default_rng(13)
+    sampled_logit_delta = rng.normal(0.1, 0.05, size=(5, 4)).astype(np.float32)
+    np.savez_compressed(
+        path,
+        sampled_logit_delta=sampled_logit_delta,
+        mean_logit_delta=sampled_logit_delta.mean(axis=1).astype(np.float32),
+        true_logit_delta=np.zeros(5, dtype=np.float32),
+        central_radius_kpc=np.array(2.0, dtype=np.float32),
+        split=np.array(["train", "val", "test", "test", "test"]),
+    )
+    return path
+
+
 def test_report_milestone2b_physical_summaries_writes_metrics_and_markdown(
     tmp_path,
     monkeypatch,

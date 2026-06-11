@@ -496,6 +496,56 @@ height (spread-miscalibrated, scale fix);
 * a gap to the ceiling remains only at `i = 60 deg` (`-0.0129` vs
 `-0.0054`).
 
+### Central-Fraction Correction Head
+
+Script:
+
+* `scripts/train\\\_central\\\_fraction\\\_correction.py`
+
+Plumbing:
+
+* `--central-fraction-predictions` on the calibrate and diagnose scripts. The
+correction is applied at evaluation time as a mass-conserving logit-space
+shift of each posterior sample's (and the posterior mean's) `R < 2 kpc` mass
+fraction: inner cells rescale to the shifted fraction, outer cells absorb the
+complement (`\\\_apply\\\_central\\\_fraction\\\_logit\\\_shift` in
+`scripts/report\\\_milestone2b\\\_physical\\\_summaries.py`).
+
+Artifacts:
+
+* `outputs/tng50\\\_milestone2b/central\\\_fraction\\\_correction/`
+* `outputs/tng50\\\_milestone2b/milestone2b\\\_summary\\\_coverage\\\_diagnostics\\\_central\\\_fraction\\\_corrected/`
+
+Design: a 1-component MDN head predicts
+`logit(f\\\_true) - logit(f\\\_posterior\\\_mean)` with uncertainty, conditioned on
+the standard features plus central elliptical features plus the logit baseline
+and posterior fractions. It is trained against the adopted MDN run
+(`components\\\_1\\\_seed\\\_20260609`), so it must be retrained if that run
+changes. Motivation: the central mass fraction feeds downstream gas dynamical
+modeling, which justifies a dedicated head for this one summary.
+
+Key held-out results (test split, on top of central features + total-mass
+correction; truth mean fraction `0.318`):
+
+* posterior-mean fraction bias: `-0.0055` to `-0.0011` overall; by
+inclination `20/40/60 deg`: `-0.0012/-0.0023/-0.0129` to
+`+0.0018/+0.0019/-0.0069`; the `60 deg` MAE improves `0.0147` to `0.0122`;
+* the remaining `60 deg` bias (`-0.0069`) is now close to the 32-component
+basis ceiling (`-0.0054`);
+* bias decomposition: central mean z `+0.634` to `+0.163` with 95 percent CI
+`[-0.229, +0.559]` containing zero; mean PIT `0.549`;
+* coverage with the head's sampled uncertainty and NO extra temperature:
+`0.761`, CI `[0.624, 0.889]`, containing the `0.68` target (slightly
+conservative, `std z 0.80`);
+* WARNING: do not apply the val-fitted per-summary temperature to the central
+fraction after the head. The head is more accurate on validation (logit-delta
+MAE `0.032`) than test (`0.048`), so the fitted shrink (`scale 0.65`)
+overfits validation and undercovers test (`0.496`). Use scale `1.0` for this
+summary; the diagnostics decision row for the central fraction reflects the
+shrunk mode and should be read with this caveat;
+* other summaries are essentially unchanged (radial mean z `+0.290` to
+`+0.202`, the rest within noise).
+
 ## Current Git State To Expect
 
 The last clean checkpoint before the physical-summary calibration work was:
@@ -512,9 +562,13 @@ e28e117 Add Milestone 2b physical summary calibration
 1a8fc16 Add scalar total-mass correction head
 ```
 
-The central-feature builder, the `--central-pixel-scale-kpc` plumbing in the
-MDN training and sweep scripts, their tests, and the handoff updates in this
-section are the next commit after those checkpoints.
+```text
+b358c76 Add inclination-aware central image features
+```
+
+The central-fraction correction head, its `--central-fraction-predictions`
+plumbing in the calibrate/diagnose scripts, their tests, and the handoff
+updates in this section are the next commit after those checkpoints.
 
 Always run:
 
@@ -536,8 +590,8 @@ Before this handoff doc was created, the current code state passed:
 with:
 
 * `ruff`: all checks passed;
-* `pytest`: `97 passed in 38.48s` (including the summary coverage diagnostics,
-total-mass correction, and central-feature tests).
+* `pytest`: `98 passed` (including the summary coverage diagnostics,
+total-mass correction, central-feature, and central-fraction head tests).
 
 After editing documentation, rerun at least:
 
@@ -576,18 +630,19 @@ error beats basis richness at 342 training rows).
 
 Remaining issues, in priority order:
 
-1. Central-mass-fraction residual gap at `i = 60 deg` only (`-0.0129` vs the
-`-0.0054` basis ceiling; absolute scale: truth fraction `0.318`). If the
-downstream gas-dynamics application needs better, the targeted option is a
-dedicated central-fraction correction head with uncertainty (same pattern as
-the total-mass head: predict the logit-fraction correction, apply a
-mass-conserving inner/outer rescale), trained with the central elliptical
-features. Otherwise document the `60 deg` limitation.
-2. Bar-frame m=2 bias (`mean z -0.374`, posterior underpredicts m=2
-amplitude): unchanged by central features; another candidate for either
-richer bar-region features or acceptance.
+1. (RESOLVED) Central-mass-fraction bias: the dedicated central-fraction
+correction head (see above) removes it (mean z `+0.163`, CI contains zero;
+`60 deg` bias `-0.0069`, near the basis ceiling). For downstream gas-dynamics
+use, take the head-corrected posterior at temperature scale `1.0`.
+2. Bar-frame m=2 bias (`mean z -0.384`, posterior underpredicts m=2
+amplitude): unchanged by central features and by the central-fraction head;
+candidate for either richer bar-region features, an analogous m=2 head, or
+acceptance.
 3. Vertical RMS height spread (overcovered): per-summary temperature scale
 fitted on validation suffices; no new model.
+4. Per-summary temperature scales fitted on 13 validation galaxies can
+overfit (see the central-fraction WARNING above). Prefer raw or global
+calibration unless the bootstrap CI clearly demands a per-summary scale.
 
 Only if these shape biases resist residual-model improvements should a larger
 3D model be considered.

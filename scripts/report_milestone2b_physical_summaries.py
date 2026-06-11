@@ -99,6 +99,34 @@ def _rescale_rows_to_total_mass(mass: np.ndarray, target_total_msun: np.ndarray)
     return (mass * scale.reshape((-1,) + (1,) * (mass.ndim - 1))).astype(np.float32)
 
 
+def _central_radial_mask(r_edges_kpc: np.ndarray, radius_kpc: float) -> np.ndarray:
+    r_centers = 0.5 * (np.asarray(r_edges_kpc)[:-1] + np.asarray(r_edges_kpc)[1:])
+    return r_centers < radius_kpc
+
+
+def _apply_central_fraction_logit_shift(
+    mass: np.ndarray,
+    logit_shift: np.ndarray,
+    radial_mask: np.ndarray,
+) -> np.ndarray:
+    """Shift each grid's central mass fraction in logit space, preserving total mass.
+
+    Inner cells (radial_mask) are rescaled to reach the shifted fraction and
+    outer cells absorb the complement, so the row total is unchanged.
+    """
+    central = np.sum(mass[:, radial_mask], axis=(1, 2, 3), dtype=np.float64)
+    total = np.sum(mass, axis=(1, 2, 3), dtype=np.float64)
+    fraction = np.divide(central, total, out=np.zeros_like(total), where=total > 0.0)
+    fraction = np.clip(fraction, 1.0e-4, 1.0 - 1.0e-4)
+    target = 1.0 / (1.0 + np.exp(-(np.log(fraction / (1.0 - fraction)) + logit_shift)))
+    inner_scale = (target / fraction).astype(np.float32)
+    outer_scale = ((1.0 - target) / (1.0 - fraction)).astype(np.float32)
+    shifted = mass.astype(np.float32).copy()
+    shifted[:, radial_mask] *= inner_scale[:, None, None, None]
+    shifted[:, ~radial_mask] *= outer_scale[:, None, None, None]
+    return shifted
+
+
 def radial_mass_profiles(mass: np.ndarray) -> np.ndarray:
     return np.sum(mass, axis=(-2, -1))
 
@@ -195,6 +223,8 @@ def _calibrated_sample_batches(
     row_scales: np.ndarray,
     batch_size: int,
     target_total_mass_msun: np.ndarray | None = None,
+    central_logit_shift: np.ndarray | None = None,
+    central_radial_mask: np.ndarray | None = None,
 ):
     n_rows, n_samples, n_coefficients = sampled_coefficients.shape
     grid_shape = tuple(int(x) for x in baseline_mass.shape[1:])
@@ -223,6 +253,12 @@ def _calibrated_sample_batches(
             corrected = _rescale_rows_to_total_mass(
                 corrected,
                 target_total_mass_msun[start:stop].reshape(-1),
+            )
+        if central_logit_shift is not None:
+            corrected = _apply_central_fraction_logit_shift(
+                corrected,
+                central_logit_shift[start:stop].reshape(-1),
+                central_radial_mask,
             )
         yield corrected.reshape((stop - start, n_samples, *grid_shape))
 
