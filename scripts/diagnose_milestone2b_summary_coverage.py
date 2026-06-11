@@ -67,6 +67,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--final-evaluation-metrics", type=Path, default=DEFAULT_FINAL_METRICS)
     parser.add_argument("--total-mass-predictions", type=Path, default=None)
     parser.add_argument("--central-fraction-predictions", type=Path, default=None)
+    parser.add_argument("--m2-predictions", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--central-radius-kpc", type=float, default=2.0)
     parser.add_argument("--bar-half-angle-deg", type=float, default=30.0)
@@ -220,6 +221,7 @@ def build_metrics(
     seed: int,
     total_mass_predictions: np.lib.npyio.NpzFile | None = None,
     central_fraction_predictions: np.lib.npyio.NpzFile | None = None,
+    m2_predictions: np.lib.npyio.NpzFile | None = None,
 ) -> dict[str, Any]:
     split = table["split"].astype(str)
     metadata = table["metadata"].astype(np.float32)
@@ -240,6 +242,7 @@ def build_metrics(
         sample_batch_size=sample_batch_size,
         total_mass_predictions=total_mass_predictions,
         central_fraction_predictions=central_fraction_predictions,
+        m2_predictions=m2_predictions,
     )
     rng = np.random.default_rng(seed)
     test_galaxies = galaxy_ids[test_mask]
@@ -361,6 +364,7 @@ def build_metrics(
         "target_coverage": TARGET_COVERAGE,
         "total_mass_correction_applied": total_mass_predictions is not None,
         "central_fraction_correction_applied": central_fraction_predictions is not None,
+        "m2_correction_applied": m2_predictions is not None,
         "bootstrap_draws": int(bootstrap_draws),
         "seed": int(seed),
         "n_val": int(np.sum(val_mask)),
@@ -395,6 +399,8 @@ def _write_markdown(path: Path, metrics: dict[str, Any]) -> None:
         f"`{'yes' if metrics.get('total_mass_correction_applied') else 'no'}`",
         f"- central-fraction correction applied: "
         f"`{'yes' if metrics.get('central_fraction_correction_applied') else 'no'}`",
+        f"- m=2 correction applied: "
+        f"`{'yes' if metrics.get('m2_correction_applied') else 'no'}`",
         f"- target coverage: `{metrics['target_coverage']:.2f}`",
         f"- bootstrap draws: `{metrics['bootstrap_draws']}` (seed `{metrics['seed']}`)",
         f"- validation galaxies/rows: `{metrics['n_val_galaxies']}` / `{metrics['n_val']}`",
@@ -520,6 +526,11 @@ def main() -> None:
             if args.central_fraction_predictions is not None
             else None
         )
+        m2_predictions = (
+            stack.enter_context(np.load(args.m2_predictions))
+            if args.m2_predictions is not None
+            else None
+        )
         metrics = build_metrics(
             table=table,
             pca=pca,
@@ -532,6 +543,7 @@ def main() -> None:
             seed=args.seed,
             total_mass_predictions=total_mass_predictions,
             central_fraction_predictions=central_fraction_predictions,
+            m2_predictions=m2_predictions,
         )
     (args.output_dir / "milestone2b_summary_coverage_diagnostics_metrics.json").write_text(
         json.dumps(metrics, indent=2, sort_keys=True),

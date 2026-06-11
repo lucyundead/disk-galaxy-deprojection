@@ -19,8 +19,10 @@ try:
         _central_radial_mask,
         _fmt,
         _mass_grids,
+        _radial_band_ids,
         _rescale_rows_to_total_mass,
         _row_temperature_scales,
+        _scale_m2_harmonic_bands,
         _summary_functions,
         _temperature_scales_by_inclination,
     )
@@ -35,8 +37,10 @@ except ModuleNotFoundError:
         _central_radial_mask,
         _fmt,
         _mass_grids,
+        _radial_band_ids,
         _rescale_rows_to_total_mass,
         _row_temperature_scales,
+        _scale_m2_harmonic_bands,
         _summary_functions,
         _temperature_scales_by_inclination,
     )
@@ -54,6 +58,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--final-evaluation-metrics", type=Path, default=DEFAULT_FINAL_METRICS)
     parser.add_argument("--total-mass-predictions", type=Path, default=None)
     parser.add_argument("--central-fraction-predictions", type=Path, default=None)
+    parser.add_argument("--m2-predictions", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--central-radius-kpc", type=float, default=2.0)
     parser.add_argument("--bar-half-angle-deg", type=float, default=30.0)
@@ -260,6 +265,35 @@ def _central_fraction_shifts(
     return sampled_shift, mean_shift
 
 
+def _m2_scales(
+    table: np.lib.npyio.NpzFile,
+    sampled_coefficients: np.ndarray,
+    m2_predictions: np.lib.npyio.NpzFile,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    sampled_scales = m2_predictions["sampled_log_m2_delta"].astype(np.float32)
+    mean_scales = m2_predictions["mean_log_m2_delta"].astype(np.float32)
+    n_radial_bins = int(table["r_edges_kpc"].shape[0]) - 1
+    head_radial_bins = int(m2_predictions["n_radial_bins"])
+    if head_radial_bins != n_radial_bins:
+        raise ValueError(
+            "m2 predictions were trained for a grid with "
+            f"{head_radial_bins} radial bins but the density table has {n_radial_bins}"
+        )
+    n_rows = int(table["split"].shape[0])
+    if sampled_scales.shape[0] != n_rows:
+        raise ValueError(
+            "m2 predictions row count does not match the density table: "
+            f"{sampled_scales.shape[0]} vs {n_rows}"
+        )
+    if sampled_scales.shape[1] != sampled_coefficients.shape[1]:
+        raise ValueError(
+            "m2 predictions sample count does not match the coefficient samples: "
+            f"{sampled_scales.shape[1]} vs {sampled_coefficients.shape[1]}"
+        )
+    band_ids = _radial_band_ids(n_radial_bins, sampled_scales.shape[2])
+    return sampled_scales, mean_scales, band_ids
+
+
 def _build_summary_arrays(
     *,
     table: np.lib.npyio.NpzFile,
@@ -271,6 +305,7 @@ def _build_summary_arrays(
     sample_batch_size: int,
     total_mass_predictions: np.lib.npyio.NpzFile | None = None,
     central_fraction_predictions: np.lib.npyio.NpzFile | None = None,
+    m2_predictions: np.lib.npyio.NpzFile | None = None,
 ) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray], dict[str, np.ndarray], dict[str, np.ndarray]]:
     truth_mass, baseline_mass = _mass_grids(table)
     posterior_mean_mass = predictions["posterior_mean_mass"].astype(np.float32)
@@ -302,6 +337,19 @@ def _build_summary_arrays(
             mean_central_shift,
             central_mask,
         )
+    sampled_m2_scales = None
+    m2_band_ids = None
+    if m2_predictions is not None:
+        sampled_m2_scales, mean_m2_scales, m2_band_ids = _m2_scales(
+            table,
+            sampled_coefficients,
+            m2_predictions,
+        )
+        posterior_mean_mass = _scale_m2_harmonic_bands(
+            posterior_mean_mass,
+            mean_m2_scales,
+            m2_band_ids,
+        )
     row_scales = _row_temperature_scales(
         metadata,
         _temperature_scales_by_inclination(final_metrics),
@@ -327,6 +375,8 @@ def _build_summary_arrays(
         target_total_mass_msun=sampled_total_targets,
         central_logit_shift=sampled_central_shift,
         central_radial_mask=central_mask,
+        m2_log_scales=sampled_m2_scales,
+        m2_band_ids=m2_band_ids,
     ):
         for name, fn in summary_functions.items():
             sample_summaries[name].append(fn(sample_mass))
@@ -349,6 +399,7 @@ def build_metrics(
     sample_batch_size: int,
     total_mass_predictions: np.lib.npyio.NpzFile | None = None,
     central_fraction_predictions: np.lib.npyio.NpzFile | None = None,
+    m2_predictions: np.lib.npyio.NpzFile | None = None,
 ) -> dict[str, Any]:
     split = table["split"].astype(str)
     metadata = table["metadata"].astype(np.float32)
@@ -368,6 +419,7 @@ def build_metrics(
         sample_batch_size=sample_batch_size,
         total_mass_predictions=total_mass_predictions,
         central_fraction_predictions=central_fraction_predictions,
+        m2_predictions=m2_predictions,
     )
     global_scale, global_val_coverage = _select_global_scale(
         sample_summaries,
@@ -447,6 +499,7 @@ def build_metrics(
         "target_coverage": TARGET_COVERAGE,
         "total_mass_correction_applied": total_mass_predictions is not None,
         "central_fraction_correction_applied": central_fraction_predictions is not None,
+        "m2_correction_applied": m2_predictions is not None,
         "n_val": int(np.sum(val_mask)),
         "n_test": int(np.sum(test_mask)),
         "global_physical_temperature_scale": global_scale,
@@ -476,6 +529,8 @@ def _write_markdown(path: Path, metrics: dict[str, Any]) -> None:
         f"`{'yes' if metrics.get('total_mass_correction_applied') else 'no'}`",
         f"- central-fraction correction applied: "
         f"`{'yes' if metrics.get('central_fraction_correction_applied') else 'no'}`",
+        f"- m=2 correction applied: "
+        f"`{'yes' if metrics.get('m2_correction_applied') else 'no'}`",
         f"- validation rows: `{metrics['n_val']}`",
         f"- test rows: `{metrics['n_test']}`",
         f"- target coverage: `{metrics['target_coverage']:.2f}`",
@@ -561,6 +616,11 @@ def main() -> None:
             if args.central_fraction_predictions is not None
             else None
         )
+        m2_predictions = (
+            stack.enter_context(np.load(args.m2_predictions))
+            if args.m2_predictions is not None
+            else None
+        )
         metrics = build_metrics(
             table=table,
             pca=pca,
@@ -571,6 +631,7 @@ def main() -> None:
             sample_batch_size=args.sample_batch_size,
             total_mass_predictions=total_mass_predictions,
             central_fraction_predictions=central_fraction_predictions,
+            m2_predictions=m2_predictions,
         )
     (args.output_dir / "milestone2b_physical_summary_calibration_metrics.json").write_text(
         json.dumps(metrics, indent=2, sort_keys=True),

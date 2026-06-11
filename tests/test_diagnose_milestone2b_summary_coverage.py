@@ -4,6 +4,7 @@ import sys
 from scripts import diagnose_milestone2b_summary_coverage
 from tests.test_report_milestone2b_physical_summaries import (
     _write_tiny_central_fraction_predictions,
+    _write_tiny_m2_predictions,
     _write_tiny_physical_inputs,
     _write_tiny_total_mass_predictions,
 )
@@ -100,6 +101,7 @@ def test_diagnose_milestone2b_summary_coverage_applies_total_mass_correction(
     )
     total_mass_path = _write_tiny_total_mass_predictions(tmp_path)
     central_fraction_path = _write_tiny_central_fraction_predictions(tmp_path)
+    m2_path = _write_tiny_m2_predictions(tmp_path)
     output_dir = tmp_path / "coverage_diagnostics_corrected"
     monkeypatch.setattr(
         sys,
@@ -118,6 +120,8 @@ def test_diagnose_milestone2b_summary_coverage_applies_total_mass_correction(
             str(total_mass_path),
             "--central-fraction-predictions",
             str(central_fraction_path),
+            "--m2-predictions",
+            str(m2_path),
             "--output-dir",
             str(output_dir),
             "--sample-batch-size",
@@ -136,9 +140,11 @@ def test_diagnose_milestone2b_summary_coverage_applies_total_mass_correction(
     )
     assert metrics["total_mass_correction_applied"] is True
     assert metrics["central_fraction_correction_applied"] is True
+    assert metrics["m2_correction_applied"] is True
     assert "radial_profile" in metrics["summary_coverage"]
     markdown = (
         output_dir / "milestone2b_summary_coverage_diagnostics.md"
     ).read_text()
     assert "total-mass correction applied: `yes`" in markdown
     assert "central-fraction correction applied: `yes`" in markdown
+    assert "m=2 correction applied: `yes`" in markdown

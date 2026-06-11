@@ -104,6 +104,29 @@ def _central_radial_mask(r_edges_kpc: np.ndarray, radius_kpc: float) -> np.ndarr
     return r_centers < radius_kpc
 
 
+def _radial_band_ids(n_radial_bins: int, n_bands: int) -> np.ndarray:
+    """Contiguous equal-count radial band index for each radial bin."""
+    return np.minimum(np.arange(n_radial_bins) * n_bands // n_radial_bins, n_bands - 1)
+
+
+def _scale_m2_harmonic_bands(
+    mass: np.ndarray,
+    log_scales: np.ndarray,
+    band_ids: np.ndarray,
+) -> np.ndarray:
+    """Scale the m=2 azimuthal Fourier harmonic of each grid per radial band.
+
+    Only the k=+-2 coefficients change, so total mass, radial profiles, and
+    vertical profiles are preserved exactly (up to the positivity clip).
+    log_scales has shape (n_rows, n_bands); mass has shape (n, R, phi, z).
+    """
+    spectrum = np.fft.rfft(mass.astype(np.float32), axis=2)
+    scale = np.exp(log_scales.astype(np.float32))[:, band_ids]
+    spectrum[:, :, 2, :] *= scale[:, :, None]
+    rescaled = np.fft.irfft(spectrum, n=mass.shape[2], axis=2)
+    return np.clip(rescaled, 0.0, None).astype(np.float32)
+
+
 def _apply_central_fraction_logit_shift(
     mass: np.ndarray,
     logit_shift: np.ndarray,
@@ -225,6 +248,8 @@ def _calibrated_sample_batches(
     target_total_mass_msun: np.ndarray | None = None,
     central_logit_shift: np.ndarray | None = None,
     central_radial_mask: np.ndarray | None = None,
+    m2_log_scales: np.ndarray | None = None,
+    m2_band_ids: np.ndarray | None = None,
 ):
     n_rows, n_samples, n_coefficients = sampled_coefficients.shape
     grid_shape = tuple(int(x) for x in baseline_mass.shape[1:])
@@ -259,6 +284,12 @@ def _calibrated_sample_batches(
                 corrected,
                 central_logit_shift[start:stop].reshape(-1),
                 central_radial_mask,
+            )
+        if m2_log_scales is not None:
+            corrected = _scale_m2_harmonic_bands(
+                corrected,
+                m2_log_scales[start:stop].reshape(-1, m2_log_scales.shape[-1]),
+                m2_band_ids,
             )
         yield corrected.reshape((stop - start, n_samples, *grid_shape))
 

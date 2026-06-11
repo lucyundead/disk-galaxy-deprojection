@@ -546,6 +546,71 @@ shrunk mode and should be read with this caveat;
 * other summaries are essentially unchanged (radial mean z `+0.290` to
 `+0.202`, the rest within noise).
 
+### m=2 Amplitude Correction Head
+
+Script:
+
+* `scripts/train\\\_m2\\\_amplitude\\\_correction.py`
+
+Plumbing:
+
+* `--m2-predictions` on the calibrate and diagnose scripts. The correction
+scales only the `k = +-2` azimuthal Fourier harmonics of each posterior
+sample grid (and the posterior mean) per radial band
+(`\\\_scale\\\_m2\\\_harmonic\\\_bands` in
+`scripts/report\\\_milestone2b\\\_physical\\\_summaries.py`), which rescales the
+m=2 profile exactly while preserving total mass, radial profiles, vertical
+profiles, and the central fraction by construction (positivity clip aside).
+
+Artifacts:
+
+* `outputs/tng50\\\_milestone2b/m2\\\_amplitude\\\_correction/`
+* `outputs/tng50\\\_milestone2b/milestone2b\\\_summary\\\_coverage\\\_diagnostics\\\_all\\\_corrections/`
+(total-mass + central-fraction + m=2 corrections together)
+
+Attribution that drove the design (note the sign: negative mean z means the
+posterior OVERPREDICTS m=2 amplitude): the bias has geometry- and
+radius-dependent sign (bar angle `0/45/90 deg`: `-0.012/+0.003/+0.025`;
+`i = 60 deg`: `+0.017`; outer `R > 6 kpc` bins uniformly `+0.019` of
+spurious m=2), the 32-component basis is nearly unbiased (oracle bias
+`+0.0005`, MAE `0.0205` vs MDN `0.0372`), and the MDN genuinely lacks m=2
+discrimination (test correlation `0.71`). A single per-row scalar cannot fix
+sign flips with radius, so the head is band-resolved: a 1-component MDN
+predicting 4 per-band log amplitude ratios, conditioned on the standard plus
+central features plus per-band relative m=2 amplitudes of the baseline and
+posterior grids.
+
+Two design decisions verified empirically:
+
+* the target must be the log ratio of band-summed NORMALIZED m=2 profile
+values; a mass-amplitude-weighted target was tried first and overcorrects
+(test bias flipped to `-0.0107`);
+* hyperparameters were selected on validation coverage, not accuracy:
+weight decay `1e-2` gives val head coverage `0.682` (vs `0.596` at `1e-4`)
+at a small accuracy cost, following the central-fraction overfit lesson.
+
+Held-out results (test, applied together with the other corrections):
+
+* posterior-mean m=2 profile bias by stratum: `i = 60 deg` `+0.0165` to
+`-0.0001` (MAE `0.0597` to `0.0485`); bar `90 deg` `+0.0249` to `+0.0111`;
+bar `0 deg` `-0.0117` to `-0.0062`; outer band `+0.0188` to `+0.0033`;
+overall MAE `0.0372` to `0.0348`;
+* summary-level mean z `-0.384` to `-0.263` (CI `[-0.43, -0.08]`, a modest
+residual bias is still detectable); `std z 0.963`; raw coverage `0.530` to
+`0.631` with CI `[0.567, 0.685]` containing the target;
+* trade-offs: the bar band (`1.2-5.2 kpc`) bin bias moves `+0.0027` to
+`-0.0110` (mild overcorrection where the model was already unbiased), and
+the bar-axis mass fraction mean z moves `+0.216` to `+0.334` (its raw
+coverage improves `0.650` to `0.735` and it stays consistent with
+calibrated);
+* all other summaries are unchanged by construction;
+* with all three corrections, all six summary decisions are "consistent
+with calibrated" except vertical RMS height (spread-only fix).
+
+Limitation: the head is capped by genuine m=2 unpredictability from these
+features (head log-delta MAE `0.26` train vs `0.31` test); a `-0.26 sigma`
+residual m=2 bias remains.
+
 ## Current Git State To Expect
 
 The last clean checkpoint before the physical-summary calibration work was:
@@ -564,11 +629,12 @@ e28e117 Add Milestone 2b physical summary calibration
 
 ```text
 b358c76 Add inclination-aware central image features
+f1b7e28 Add central-fraction correction head
 ```
 
-The central-fraction correction head, its `--central-fraction-predictions`
-plumbing in the calibrate/diagnose scripts, their tests, and the handoff
-updates in this section are the next commit after those checkpoints.
+The m=2 amplitude correction head, its `--m2-predictions` plumbing in the
+calibrate/diagnose scripts, their tests, and the handoff updates in this
+section are the next commit after those checkpoints.
 
 Always run:
 
@@ -590,8 +656,9 @@ Before this handoff doc was created, the current code state passed:
 with:
 
 * `ruff`: all checks passed;
-* `pytest`: `98 passed` (including the summary coverage diagnostics,
-total-mass correction, central-feature, and central-fraction head tests).
+* `pytest`: `100 passed` (including the summary coverage diagnostics, the
+three correction heads, the central-feature tests, and the m=2 harmonic
+scaling property test).
 
 After editing documentation, rerun at least:
 
@@ -634,13 +701,18 @@ Remaining issues, in priority order:
 correction head (see above) removes it (mean z `+0.163`, CI contains zero;
 `60 deg` bias `-0.0069`, near the basis ceiling). For downstream gas-dynamics
 use, take the head-corrected posterior at temperature scale `1.0`.
-2. Bar-frame m=2 bias (`mean z -0.384`, posterior underpredicts m=2
-amplitude): unchanged by central features and by the central-fraction head;
-candidate for either richer bar-region features, an analogous m=2 head, or
-acceptance.
+2. (LARGELY RESOLVED) Bar-frame m=2 bias (sign correction: negative mean z
+means the posterior OVERPREDICTS m=2 amplitude): the band-resolved m=2
+amplitude head (see above) removes the geometry/radius bias structure and
+brings raw coverage consistent with target. A `-0.26 sigma` residual bias
+remains, capped by m=2 predictability from current features; accept it or
+revisit only with fundamentally better bar features.
 3. Vertical RMS height spread (overcovered): per-summary temperature scale
 fitted on validation suffices; no new model.
-4. Per-summary temperature scales fitted on 13 validation galaxies can
+4. Bar-axis mass fraction picked up a small bias from the m=2 correction
+(mean z `+0.216` to `+0.334`, still consistent with calibrated); watch it if
+the m=2 head is retrained.
+5. Per-summary temperature scales fitted on 13 validation galaxies can
 overfit (see the central-fraction WARNING above). Prefer raw or global
 calibration unless the bootstrap CI clearly demands a per-summary scale.
 

@@ -100,6 +100,65 @@ def _write_tiny_total_mass_predictions(tmp_path):
     return path
 
 
+def _write_tiny_m2_predictions(tmp_path):
+    path = tmp_path / "m2_predictions.npz"
+    rng = np.random.default_rng(17)
+    sampled_log_m2_delta = rng.normal(-0.05, 0.03, size=(5, 4, 2)).astype(np.float32)
+    np.savez_compressed(
+        path,
+        sampled_log_m2_delta=sampled_log_m2_delta,
+        mean_log_m2_delta=sampled_log_m2_delta.mean(axis=1).astype(np.float32),
+        true_log_m2_delta=np.zeros((5, 2), dtype=np.float32),
+        n_radial_bands=np.array(2, dtype=np.int32),
+        n_radial_bins=np.array(2, dtype=np.int32),
+        split=np.array(["train", "val", "test", "test", "test"]),
+    )
+    return path
+
+
+def test_scale_m2_harmonic_bands_scales_only_the_m2_amplitude():
+    n_phi = 8
+    phi_edges = np.linspace(-np.pi, np.pi, n_phi + 1)
+    phi_centers = 0.5 * (phi_edges[:-1] + phi_edges[1:])
+    base = 1.0 + 0.5 * np.cos(2.0 * phi_centers)
+    mass = np.broadcast_to(
+        base[None, None, :, None], (2, 4, n_phi, 2)
+    ).astype(np.float32).copy()
+    band_ids = report_milestone2b_physical_summaries._radial_band_ids(4, 2)
+    log_scales = np.array(
+        [[np.log(0.5), np.log(1.2)], [0.0, 0.0]],
+        dtype=np.float32,
+    )
+
+    scaled = report_milestone2b_physical_summaries._scale_m2_harmonic_bands(
+        mass,
+        log_scales,
+        band_ids,
+    )
+
+    assert np.all(scaled >= 0.0)
+    np.testing.assert_allclose(
+        scaled.sum(axis=(1, 2, 3)),
+        mass.sum(axis=(1, 2, 3)),
+        rtol=1.0e-5,
+    )
+    np.testing.assert_allclose(
+        scaled.sum(axis=(2, 3)),
+        mass.sum(axis=(2, 3)),
+        rtol=1.0e-5,
+    )
+
+    def m2_amplitude(grid):
+        radial_phi = grid.sum(axis=3)
+        return np.abs((radial_phi * np.exp(2j * phi_centers)[None, None, :]).sum(axis=2))
+
+    before = m2_amplitude(mass)
+    after = m2_amplitude(scaled)
+    expected = np.exp(log_scales)[:, band_ids]
+    np.testing.assert_allclose(after / before, expected, rtol=1.0e-5)
+    np.testing.assert_allclose(scaled[1], mass[1], atol=1.0e-6)
+
+
 def _write_tiny_central_fraction_predictions(tmp_path):
     path = tmp_path / "central_fraction_predictions.npz"
     rng = np.random.default_rng(13)
