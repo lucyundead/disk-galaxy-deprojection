@@ -652,6 +652,31 @@ vertical summaries are UNDERcovered (`0.575`, `0.556`) with `std z`
 1.75-1.89 - the per-summary temperature fitted on validation does not
 transfer to test, indicating galaxy-level heterogeneity in vertical spread.
 
+Inclination sensitivity scan (2026-06-11): `scripts/scan_inclination_sensitivity.py`
+re-evaluates the adopted run end-to-end with perturbed inclination everywhere an
+observer would use it (rebuilt baseline, metadata, central features), heads
+excluded, paired sampling noise. Artifacts:
+`outputs/tng50_milestone2c_clean3d/milestone2c_inclination_sensitivity/`.
+Key findings (test split):
+
+* the response is strongly ASYMMETRIC: overestimating inclination by +3/+5 deg
+inflates central-fraction MAE by 40/75 percent, bar-axis MAE by 35/65 percent,
+m=2 MAE by 19/35 percent, and collapses central-fraction coverage (0.44 to
+0.34/0.29); underestimating by the same amount IMPROVES all bar-frame
+summaries and moves their biases toward zero;
+* the improvement under reduced inclination indicates the thin-disk baseline
+overstretches real (thick) disks at the true inclination - the classic
+finite-thickness deprojection effect; an effective-inclination (or
+thickness-aware q0) correction in the baseline is a promising cheap fix;
+* zero-mean Gaussian inclination scatter (sigma 3 deg) is second-order:
+5-15 percent MAE inflation, coverage shifts <= 0.04;
+* vertical-structure summaries are essentially insensitive to inclination
+errors of this size (the sech^2 prior plus learned residual dominates them);
+* implication for geometry-uncertainty propagation: the systematic component
+of the observer's inclination estimate matters far more than its variance;
+prioritize modeling/removing the thin-disk inversion bias before adding
+stochastic marginalization.
+
 Disk-space note (2026-06-11): the Windows host C: drive filled up during this
 work (the WSL VHDX hit a 19.9 GB high-water mark; training jobs died with
 SIGBUS and the guest FS briefly wedged). Non-adopted sweep prediction npz
