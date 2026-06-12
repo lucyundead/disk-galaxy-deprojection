@@ -677,6 +677,42 @@ of the observer's inclination estimate matters far more than its variance;
 prioritize modeling/removing the thin-disk inversion bias before adding
 stochastic marginalization.
 
+Bar-region recovery analysis (2026-06-12): `scripts/analyze_bar_region_recovery.py`
+evaluates the adopted 2c run in bar-scaled regions (bar R < L_bar from the
+manifest bar_length, transition [L, 1.5L), outer >= 1.5L), on the test split,
+raw posterior (no heads, no temperature). Artifacts:
+`outputs/tng50_milestone2c_clean3d/milestone2c_bar_region_recovery/`.
+Methodology and conventions were adversarially audited (frame alignment,
+m=2 phase wrapping, units, aggregation - all confirmed; truth bar-region m=2
+phase clusters at 1.8 deg median, confirming bar alignment). Key findings
+(median [p16, p84] over 37 galaxies):
+
+* the bar region is the BEST-recovered region: cell relative MAE 0.261 (bar)
+< 0.316 (transition) < 0.397 (outer); baseline 0.488/0.983/1.261;
+* bar quadrupole: m=2 amplitude error -0.004 on true 0.267, absolute phase
+error 3.76 deg median (1 of 37 galaxies above 10 deg, worst 14.2);
+baseline: -0.050 and 5.89 deg;
+* bar-region mass share (self-normalized fractions): posterior -0.009
+[-0.018, +0.004] vs baseline -0.018 - same sign as the known central
+concentration underprediction, halved by the MDN;
+* vertical: the thin-disk baseline is 0.42x the true bar RMS z; the
+posterior fixes it to 1.042 [0.902, 1.195]; per-galaxy vertical anisotropy
+(along-bar vs perpendicular RMS z in [0.3, 0.8] L_bar) tracks truth with
+Pearson r 0.888 (all 37 galaxies have ratio < 1, so the ratio measures
+anisotropy, not a literal peanut detection; sign agreement is degenerate);
+* bar-region coverage (raw): mass fraction 0.387 - same raw-posterior
+narrowness as the central fraction (0.438 raw in the inclination scan
+reference), NOT comparable to the 0.685 all-corrections headline; m=2
+amplitude 0.661 (fine);
+* TODO (upstream, found by audit): the PCA targets were normalized by the
+TRUTH grid mass (`analyze_tng50_density_residuals.py`) but all
+reconstructions multiply by the BASELINE grid mass
+(`reconstruct_delta_mass_from_coefficients` callers) - a ~2 percent per-row
+amplitude inconsistency, mostly absorbed by the preserve-total rescale.
+Harmless for truth-referenced evaluation but should be unified at the next
+training cycle; note the stored true_coefficients do not invert exactly
+under the deployed transform.
+
 Disk-space note (2026-06-11): the Windows host C: drive filled up during this
 work (the WSL VHDX hit a 19.9 GB high-water mark; training jobs died with
 SIGBUS and the guest FS briefly wedged). Non-adopted sweep prediction npz
