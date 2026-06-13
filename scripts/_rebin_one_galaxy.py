@@ -42,14 +42,18 @@ def probe(subhalo: int) -> list[str]:
     ]
 
 
-def rebin(subhalo: int, z_max: float, n_z: int) -> list[str]:
+def rebin(subhalos: list[int], z_max: float, n_z: int) -> list[str]:
     manifest = f"{SOURCE}/manifest.csv"
-    one_manifest = f"{SCRATCH}/manifest_{subhalo}.csv"
+    tag = "_".join(str(s) for s in subhalos[:3]) + (f"_plus{len(subhalos) - 3}" if len(subhalos) > 3 else "")
+    one_manifest = f"{SCRATCH}/manifest_{tag}.csv"
     outdir = f"{SCRATCH}/zmax{z_max:g}_nz{n_z}"
-    return [
+    commands = [
         f"mkdir -p {SCRATCH}",
         f"head -n 1 {manifest} > {one_manifest}",
-        f"grep ^{subhalo}, {manifest} >> {one_manifest}",
+    ]
+    for sid in subhalos:
+        commands.append(f"grep ^{sid}, {manifest} >> {one_manifest}")
+    commands += [
         f"wc -l {one_manifest}",
         f"mkdir -p {outdir}",
         (
@@ -65,20 +69,22 @@ def rebin(subhalo: int, z_max: float, n_z: int) -> list[str]:
         f"ls -la {outdir}",
         "echo REBIN_DONE",
     ]
+    return commands
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("mode", choices=["probe", "rebin"])
-    parser.add_argument("--subhalo", type=int, required=True)
+    parser.add_argument("--subhalo", type=int, help="single subhalo (probe)")
+    parser.add_argument("--subhalos", type=str, help="comma-separated subhalos (rebin)")
     parser.add_argument("--z-max-kpc", type=float, default=5.0)
     parser.add_argument("--n-z", type=int, default=32)
     args = parser.parse_args()
-    commands = (
-        probe(args.subhalo)
-        if args.mode == "probe"
-        else rebin(args.subhalo, args.z_max_kpc, args.n_z)
-    )
+    if args.mode == "probe":
+        commands = probe(args.subhalo)
+    else:
+        ids = [int(s) for s in (args.subhalos or str(args.subhalo)).split(",")]
+        commands = rebin(ids, args.z_max_kpc, args.n_z)
     return run_remote(CONFIG, commands)
 
 
