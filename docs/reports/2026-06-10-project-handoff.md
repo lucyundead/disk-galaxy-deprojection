@@ -713,6 +713,42 @@ Harmless for truth-referenced evaluation but should be unified at the next
 training cycle; note the stored true_coefficients do not invert exactly
 under the deployed transform.
 
+Milestone 2d - finer-z X-recovery validation (2026-06-12): tested whether the
+method recovers a boxy/peanut X-shaped bulge. The production grid (|z|<10 kpc,
+0.625 kpc) cannot resolve the X bifurcation, so the full sample was re-binned at
+|z|<5 kpc / 0.3125 kpc (option 1: 2x finer vertical resolution at zero grid
+cost; truncates ~5-8% diffuse halo, raising baseline total-mass error to ~7.6%,
+which a total-mass head would absorb and which does not affect vertical shape).
+Cluster orchestration: `scripts/_milestone2d_cluster.py`; data under remote
+`outputs/tng50_milestone2c_z5/` and local `/mnt/e/dgdp-milestone2d/`. Peanuts
+are rare in this mass-selected sample: of the top 13 off-plane-mass candidates,
+only subhalo 392276 has a genuine X (bar-end vertical profile dips to 0.795 of
+its peak with maxima at |z|=0.78 kpc; invisible at 0.625 kpc where it reads
+0.986). 392276 was forced into the held-out test split and the adopted MDN
+config retrained at 0.3125 kpc. Findings (`scripts/analyze_mdn_x_recovery.py`,
+`scripts/_check_basis_represents_x.py`):
+
+* the 0.3125 kpc grid DOES resolve the X (truth dip 0.795);
+* the PCA basis - even fit on an X-free training set - CAN represent the X:
+reconstructing 392276 from its own basis coefficients gives dip 0.595;
+* the MDN does NOT recover the X for the held-out galaxy (posterior dip 1.000,
+single-peaked). It recovers the population-typical boxy/THICKENING (posterior
+is vertically much thicker than the thin baseline) but not the off-plane
+bifurcation;
+* diagnosis: this is a PREDICTION failure, not a representation or resolution
+failure - 392276 is the only strong X in 185 galaxies, so holding it out
+leaves ~zero X training examples and the image->X-coefficient mapping is never
+learned.
+
+Implication: validating (or achieving) X-recovery is impossible with TNG50's
+mass-selected sample because buckled bars are too rare (~1/185). This is a
+quantitative motivation for the planned N-body step: generate many buckled-bar
+models so the X is common enough to learn AND to validate on held-out X
+galaxies. The grid + basis are already X-capable; only the training
+distribution is lacking. NOTE the scoped 2d retrain trained only the adopted
+MDN config (no sweep, no correction heads, no calibration) - it answers the
+X-recovery question only; a full milestone 2d would add those.
+
 Disk-space note (2026-06-11): the Windows host C: drive filled up during this
 work (the WSL VHDX hit a 19.9 GB high-water mark; training jobs died with
 SIGBUS and the guest FS briefly wedged). Non-adopted sweep prediction npz
