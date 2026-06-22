@@ -762,6 +762,90 @@ VHDX compaction is still pending (needs an elevated shell). Do not run two
 heavy python jobs concurrently in this WSL (7.6 GiB RAM; OOM kills corrupt
 npz/json writes).
 
+### N-body Cross-Check: Shen2010 MW Bar (Out-Of-Distribution, 2026-06-13)
+
+Full report: `docs/reports/2026-06-13-nbody-shen2010-deprojection.md`. Scripts:
+`scripts/eval_nbody_shen2010_deprojection.py` (end-to-end),
+`scripts/_nbody_shen2010_characterize.py`,
+`scripts/_nbody_shen2010_check_xshape.py`. Artifacts:
+`outputs/nbody_shen2010/`.
+
+First out-of-distribution test of the adopted 2c MDN (no retraining, core MDN,
+no heads) on a real N-body bar - the Shen et al. 2010 pure-disk MW model
+(`/home/zli/Shen2010MW/t800info.dat`, 982,889 particles, already in physical
+kpc/km-s; total mass normalized to 4.5e10 Msun). Aligned with the standard
+pipeline helper, projected at inclination {20,40,60} x bar angle {20,40,60}.
+
+Key findings:
+
+* in-plane structure recovered well: 3D cell-mass MAE 47% better than the
+  geometric baseline at every geometry (median 2.75e5 vs 5.09e5 Msun; flat
+  43-50% across i and bar angle, vs 66% on in-distribution TNG - the OOD
+  penalty); central mass fraction tracked (truth 0.490, MDN 0.46-0.49 vs
+  baseline down to 0.444 at i=60); bar m=2 restored toward truth; total mass to
+  0.4%;
+* VERTICAL OVER-THICKENING is the failure mode: thin-disk baseline RMS z 0.41
+  vs truth 0.77 kpc; the MDN thickens (correct direction) but overshoots to
+  1.25 kpc (~1.6x truth) - it imposes the thicker TNG vertical prior on this
+  intrinsically thin disk. Reinforces the existing top-priority vertical
+  spread issue; motivates a thickness-aware vertical head or N-body disks of
+  varied thickness in training;
+* CORRECTION (do not repeat the earlier error): t800 IS a strong boxy/peanut X.
+  The "boxy not X" claim used the wrong criterion - boxy/peanut/X is a contour
+  SHAPE feature, not an off-plane density maximum; in a projected slab the thin
+  disk fills the midplane so rho(z) stays single-peaked even with a clear X.
+  Measured by iso-density contour shape it is a strong peanut comparable to
+  observed B/P bulges. Use the contour/squareness diagnostics, not a dip.
+
+`ruff check .` clean; `pytest -q` 102 passed (additive scripts only).
+
+### Representation direction: grid-free SPH-KDE + superellipsoid (2026-06-14)
+
+Full detail in `docs/reports/2026-06-13-nbody-shen2010-deprojection.md`. Driven by
+gal3d (superellipsoid iso-density shapes) + Tahmasebzadeh, Zhu, Shen, Gerhard &
+Qin 2021 (MGE deprojection of barred galaxies). Key results:
+
+* flow matching ties the 1-Gaussian MDN in accuracy on the filter+global-PCA-32
+  target (residual recon rel-L2 0.31 vs 0.33), marginally better calibrated; the
+  bottleneck is image->coefficient predictability, not the generator (the
+  slide-15 flow-matching deferral holds on TNG);
+* mesh-free SPH-KDE + a nested superellipsoid reconstruction, 3D rel-L2 vs an
+  SPH-KDE truth, on FULL particles (earlier TNG numbers used 80k-capped subsamples
+  that starved the grid and inflated the margin - corrected 2026-06-22 by
+  re-extracting uncapped, 392276 1.50M / 554189 0.56M stars): superellipsoid
+  (144 params) vs 0.3125 kpc grid (49152 cells) = Shen2010 0.381 vs 0.465 (win,
+  clean N-body); TNG 392276 0.437 vs 0.444 (~tie); TNG 554189 0.619 vs 0.600
+  (slight loss, extended disk - a monolithic superellipsoid over-thickens a thin
+  disk). So on a fair comparison the superellipsoid is COMPETITIVE with, not
+  better than, the fine grid on real TNG galaxies; the rel-L2 "win" was largely a
+  particle-noise artifact. The N-independent advantages are the point (~150 params
+  vs 49152 cells, smooth, X not resolution-limited, potential-ready);
+* even-m Fourier x smooth (R,z) FIXES the disk and is the ADOPTED backbone
+  (2026-06-22): one non-stratified component (no image / disk-bulge decomposition),
+  rho = sum_{m=0,2,4,6,8,10} a_m(R,z) cos(m phi) + b_m(R,z) sin(m phi), a_m a free
+  2D map (`fourier_rz_fit`/`fourier_rz_reconstruct` in
+  `reconstruct_superellipsoid_3d.py`). Full-particle 3D rel-L2 vs SPH-KDE truth
+  (2002 coeffs): Shen2010 0.385, TNG 554189 0.307, TNG 392276 0.370 - BEATS the
+  grid (0.465 / 0.600 / 0.444) on all three and FIXES the superellipsoid disk
+  over-thickening (554189 0.619 -> 0.307). Per-shell orientation (tilt only) and an
+  m=4 azimuthal term (in-plane bar only) do NOT fix the disk - it is an R-z
+  composite problem. It is the AGAMA CylSpline form (potential-ready). The
+  superellipsoid is kept only as a compact bulge / B-P squareness descriptor. (MGE
+  cannot do B/P; for dynamics the right metric is potential/orbits - the paper:
+  <10% potential, 85% orbit match even without the peanut.)
+
+Next steps (for a fresh session): (1) compress the Fourier x (R,z) target to a few
+hundred coeffs via power-weighted (R,z) allocation per harmonic (m=6,8,10 carry
+~0.1% of the power); (2) wire the Fourier x (R,z) coefficients in as the
+deprojection TARGET (predict a_m(R,z) from the image, retrain MDN/flow); (3)
+potential/force validation via AGAMA CylSpline on Shen2010 (truth vs deprojection);
+(4) the peanut census still needs a proper B/P pipeline (the b4 metric is
+disk/bulge-confounded on real galaxies); (5) the user has more N-body models for
+strong-X training/validation (deferred). Artifacts: full uncapped TNG particles in
+`/mnt/e/dgdp-fullparticles/`, Shen2010 data/cache in `outputs/nbody_shen2010/`,
+figures in `outputs/nbody_shen2010/figures/`. All this session's scripts are
+untracked (see git status); commit before continuing.
+
 ## Current Git State To Expect
 
 The last clean checkpoint before the physical-summary calibration work was:
