@@ -881,6 +881,35 @@ m>0 projection-consistency. Artifacts: full uncapped TNG particles in
 `/mnt/e/dgdp-fullparticles/`, Shen2010 data/cache in `outputs/nbody_shen2010/`,
 figures in `outputs/nbody_shen2010/figures/`.
 
+SESSION UPDATE 2026-06-24 (committed): full session in the two 2026-06-23 reports plus
+the radial-anchor (step a) and AGAMA cross-check results. Net status of the
+even-m Fourier x (R,z) deprojection backbone:
+- Representation: compresses 2002 -> ~500 coeff at preserved 3D rel-L2 vs SPH-KDE truth
+  (compress_fourier_rz_target.py, pinned 14x13).
+- Deprojection (image->3D, milestone2d): mass-conserving image-anchored a_m=Sigma_m(R)q_m(z;R)
+  + radial-anchor Sigma_m(R) correction heads (deproject_fourier_rz_conserving.py) BEATS the
+  grid PCA pipeline on held-out cell-mass MAE (5.68e5 vs 5.93e5) and rel-L2 (0.375 vs 0.428)
+  with total mass a controlled scalar; remaining gap to the oracle anchor is image->coeff
+  predictability-limited.
+- Potential/forces: validated with an in-house FFT Poisson solver (src/dgdp/poisson_fft.py)
+  AND the real AGAMA CylSpline (agama_potential_crosscheck.py). AGAMA is usable from .venv via
+  PYTHONPATH=/home/lucyundead/Agama/build/lib.linux-x86_64-cpython-313 (user prebuilt agama
+  1.0.159; setUnits(mass=1,length=1,velocity=1)).
+- STEP (a) DONE 2026-06-24: bumped fit_fourier_rz DEFAULT to 25x25 (was 14x13). fourier_full
+  now MATCHES the gold/grid on forces (AGAMA force-err 0.019/0.028/0.029 vs grid
+  0.014/0.025/0.037; v_c-rms 2.3-5.7 km/s, <= grid) - representation-only, NO retrain. The
+  earlier "Fourier worse on forces" was the coarse default. The deprojection PREDICTED target
+  stays compact ~500 (prediction PCA-32-limited). compress_ + reconstruct_superellipsoid_ pin
+  14x13 to keep their studies + the frozen alloc JSON.
+NEXT (route B, deferred to next session): test whether predicting AGAMA's NATIVE CylSpline /
+DensityAzimuthalHarmonic coefficients (finer quintic spline, native AGAMA object out) buys
+anything for the deprojection. Feasible (agama.Density(type='DensityAzimuthalHarmonic',
+density=callable,...).export()/import round-trips coeffs on a fixed grid+mmax), but likely
+prediction-limited (no recovery gain); the cheaper alternative is a to_agama_density() wrapper
+on our predicted density (no retrain). Also still open: flow + m>0 projection-consistency on
+the conserving target; AGAMA potential/orbit demo end-to-end from one image; the deferred
+N-body library / B-P census.
+
 ## Current Git State To Expect
 
 The last clean checkpoint before the physical-summary calibration work was:

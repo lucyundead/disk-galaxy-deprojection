@@ -63,7 +63,7 @@ def main() -> None:
     for name, kind, hdf5 in cases:
         pos, mass = get_particles(kind, args.cache_dir, hdf5)
         rho = SPH(pos, mass, k=32)
-        model = fit_fourier_rz(rho)
+        model = fit_fourier_rz(rho, n_r=14, n_z_half=6)  # pin the 14x13 uniform baseline (frozen target)
         truth = rho(pts)
         mask = truth > 1e-3 * truth.max()
         fitted[name] = {
@@ -90,7 +90,7 @@ def main() -> None:
         n_c = _alloc_n_coeff(alloc)
         rels = {}
         for name in fitted:
-            compact = fit_fourier_rz(fitted[name]["rho"], alloc=alloc)
+            compact = fit_fourier_rz(fitted[name]["rho"], alloc=alloc, n_r=14, n_z_half=6)
             rels[name] = rel_l2(reconstruct_fourier_rz(pts, compact), fitted[name]["truth"], fitted[name]["mask"])
         sweep_rows.append({"capture": capture, "n_coeff": n_c, "alloc": alloc, "rel": rels})
         print(f"{capture:>8.3f} {n_c:>8} {n_c / n_full:>5.0%}  " + "  ".join(f"{rels[n]:>9.3f}" for n in fitted))
@@ -104,7 +104,7 @@ def main() -> None:
           f"({n_chosen / n_full:.0%} of {n_full})")
     results = {}
     for name in fitted:
-        compact = fit_fourier_rz(fitted[name]["rho"], alloc=chosen_alloc)
+        compact = fit_fourier_rz(fitted[name]["rho"], alloc=chosen_alloc, n_r=14, n_z_half=6)
         results[name] = {
             "n_particles": fitted[name]["n_particles"],
             "rel_l2_full": fitted[name]["rel_full"],

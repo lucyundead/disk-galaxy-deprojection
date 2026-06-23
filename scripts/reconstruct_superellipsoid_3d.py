@@ -198,7 +198,7 @@ def main():
         supe = reconstruct(pts, shells)
         grid625 = grid_density_at(pts, pos, mass, z_max=10.0, n_z=32)   # production 0.625 kpc
         grid312 = grid_density_at(pts, pos, mass, z_max=5.0, n_z=32)    # fine 0.3125 kpc
-        fmodel = fit_fourier_rz(rho)
+        fmodel = fit_fourier_rz(rho, n_r=14, n_z_half=6)  # pin the original 14x13 study grid
         fourier = reconstruct_fourier_rz(pts, fmodel)
         n_four = fmodel["n_coeff"]
         mask = truth > 1e-3 * truth.max()

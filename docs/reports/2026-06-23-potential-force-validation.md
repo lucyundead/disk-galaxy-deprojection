@@ -202,6 +202,23 @@ a 25x25 spline fit straight to the particles), not azimuthally. Implication: clo
 gap means refining the (R,z) representation (more knots / less pre-smoothing), not adding
 asymmetric harmonics - consistent with the v_c finding and "the radial anchor is the lever".
 
+### Finer (R,z) grid closes the force gap (2026-06-24)
+
+The (R,z)-smoothing gap is just knot resolution. `fit_fourier_rz`'s default was bumped
+from 14x13 to **25x25** (n_r=25, n_z_half=12); `fourier_full` then **matches the gold**.
+AGAMA force error vs the particle gold: fourier_full **0.019 / 0.028 / 0.029**
+(Shen / 554189 / 392276) vs grid 0.014 / 0.025 / 0.037 - a match (was 0.085 / 0.063 /
+0.103 at 14x13). Re-run validate: pot-err vs SPH 0.02-0.10 (was 0.10-0.20), v_c-rms
+2.3-5.7 km/s (was 10-12, now <= grid on Shen and 392276). This is a **representation-only**
+change - NO retrain - because it is a direct fit to a known density; the deprojection
+*predicted* target stays the compact ~500 coeff (prediction is PCA-32-limited, so a finer
+predicted grid would not help recovery). The compressed (496) stays ~0.13-0.16 (AGAMA),
+as expected. (Note: validate's *direct-sum* gold still shows fourier_full ~0.10-0.26
+because that gold is sharp + the rep carries SPH-KDE smoothing; the AGAMA-Poisson gold -
+the right reference per the no-direct-sum discussion - shows the match.) Historical
+studies (`compress_fourier_rz_target.py`, `reconstruct_superellipsoid_3d.py`) pin
+n_r=14,n_z_half=6 so their numbers and the frozen deprojection allocation are unchanged.
+
 ## Code and artifacts
 
 - `src/dgdp/poisson_fft.py` - isolated FFT Poisson/force solver + v_c(R) helper

@@ -36,7 +36,7 @@ def _eval_points(rng: np.random.Generator, n: int = 4000) -> np.ndarray:
 def test_uniform_fit_reconstructs_analytic_field() -> None:
     model = fit_fourier_rz(_bar_disk_density)
     assert model["n_coeff"] == n_coefficients(model)
-    assert model["n_coeff"] == 11 * 14 * 13  # (m0 real) + 5*(re+im), each 14x13
+    assert model["n_coeff"] == 11 * 25 * 25  # (m0 real) + 5*(re+im), each 25x25 (default grid)
     pts = _eval_points(np.random.default_rng(0))
     recon = reconstruct_fourier_rz(pts, model)
     truth = _bar_disk_density(pts)
@@ -66,9 +66,10 @@ def test_power_is_concentrated_in_m0_and_m2() -> None:
 
 
 def test_power_allocation_compresses_and_drops_dead_harmonics() -> None:
-    model = fit_fourier_rz(_bar_disk_density)
+    # pin the coarser grid so the allocation candidates (<=14x6) can capture the budget
+    model = fit_fourier_rz(_bar_disk_density, n_r=14, n_z_half=6)
     alloc, info = derive_power_allocation(model, capture=0.999)
-    compact = fit_fourier_rz(_bar_disk_density, alloc=alloc)
+    compact = fit_fourier_rz(_bar_disk_density, alloc=alloc, n_r=14, n_z_half=6)
     assert compact["n_coeff"] < model["n_coeff"]
     assert info["captured_fraction"] >= 0.999 - 1e-9
     # harmonics carrying negligible power must be dropped entirely
