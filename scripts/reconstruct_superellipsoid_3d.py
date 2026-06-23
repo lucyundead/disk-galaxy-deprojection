@@ -25,16 +25,14 @@ mpl.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.colors import LogNorm
-from scipy.interpolate import RegularGridInterpolator
 from scipy.optimize import least_squares
 from scipy.spatial import cKDTree
 
 from dgdp.density3d import build_cylindrical_density_grid, cylindrical_bin_volumes, make_cylindrical_grid_spec
+from dgdp.fourier_rz import fit_fourier_rz, reconstruct_fourier_rz
 from dgdp.orientation import align_particles_to_disk_bar_frame
 from dgdp.types import ParticleSet
 from peanut_strength import _shen_aligned_positions
-
-EVEN_M = (0, 2, 4, 6, 8, 10)
 
 
 def cubic_spline_w(q):
@@ -172,42 +170,6 @@ def edgeon(rho_fn, half=6.0, zmax=3.0, vox=0.05):
     return xx, zz, rho_fn(np.column_stack([XX.ravel(), np.zeros(XX.size), ZZ.ravel()])).reshape(XX.shape)
 
 
-def fourier_rz_fit(rho, *, n_phi=64, nR=14, nz_half=6, r_max=15.0, z_max=4.0):
-    """Grid-free even-m Fourier x smooth-(R,z) model: at control (R,z) knots
-    (log R, dense-near-0 z) take the azimuthal Fourier transform of the SPH-KDE
-    density and keep even m<=10. NOT a stratified/concentric model and NOT a
-    disk/bulge split: a_m(R,z) is a free 2D map per harmonic, so a flat disk and a
-    rounder bulge coexist natively. Reconstruction interpolates a_m(R,z) smoothly."""
-    R = np.geomspace(0.12, r_max, nR)
-    zp = np.geomspace(0.12, z_max, nz_half)
-    z = np.concatenate([-zp[::-1], [0.0], zp])  # 2*nz_half+1 knots, dense near plane
-    phi = np.linspace(0.0, 2 * np.pi, n_phi, endpoint=False)
-    RR, PP, ZZ = np.meshgrid(R, phi, z, indexing="ij")
-    pts = np.column_stack([(RR * np.cos(PP)).ravel(), (RR * np.sin(PP)).ravel(), ZZ.ravel()])
-    dens = rho(pts).reshape(len(R), n_phi, len(z))
-    coeff = np.fft.rfft(dens, axis=1) / n_phi
-    maps = {m: coeff[:, m, :] for m in EVEN_M}
-    n_coeff = int(sum((1 if m == 0 else 2) for m in EVEN_M) * len(R) * len(z))
-    return {"R": R, "z": z, "maps": maps, "n_coeff": n_coeff}
-
-
-def fourier_rz_reconstruct(pts, model):
-    R = np.hypot(pts[:, 0], pts[:, 1])
-    phi = np.arctan2(pts[:, 1], pts[:, 0])
-    q = np.column_stack([np.clip(R, model["R"][0], model["R"][-1]),
-                         np.clip(pts[:, 2], model["z"][0], model["z"][-1])])
-    out = np.zeros(pts.shape[0])
-    for m in EVEN_M:
-        cm = model["maps"][m]
-        re = RegularGridInterpolator((model["R"], model["z"]), cm.real, bounds_error=False, fill_value=0.0)(q)
-        if m == 0:
-            out += re
-        else:
-            im = RegularGridInterpolator((model["R"], model["z"]), cm.imag, bounds_error=False, fill_value=0.0)(q)
-            out += 2.0 * (re * np.cos(m * phi) - im * np.sin(m * phi))
-    return np.clip(out, 0.0, None)
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cache-dir", type=Path, default=Path("outputs/nbody_shen2010/cache"))
@@ -236,8 +198,8 @@ def main():
         supe = reconstruct(pts, shells)
         grid625 = grid_density_at(pts, pos, mass, z_max=10.0, n_z=32)   # production 0.625 kpc
         grid312 = grid_density_at(pts, pos, mass, z_max=5.0, n_z=32)    # fine 0.3125 kpc
-        fmodel = fourier_rz_fit(rho)
-        fourier = fourier_rz_reconstruct(pts, fmodel)
+        fmodel = fit_fourier_rz(rho)
+        fourier = reconstruct_fourier_rz(pts, fmodel)
         n_four = fmodel["n_coeff"]
         mask = truth > 1e-3 * truth.max()
         r_supe = rel_l2(supe, truth, mask)
@@ -263,7 +225,7 @@ def main():
         xx, zz, t_map = edgeon(rho)
         _, _, s_map = edgeon(lambda p, sh=shells: reconstruct(p, sh))
         _, _, g_map = edgeon(lambda p, ps=pos, ms=mass: grid_density_at(p, ps, ms, z_max=5.0, n_z=32))
-        _, _, f_map = edgeon(lambda p, fm=fmodel: fourier_rz_reconstruct(p, fm))
+        _, _, f_map = edgeon(lambda p, fm=fmodel: reconstruct_fourier_rz(p, fm))
         for ax, m, ttl in (
             (axes[row, 0], t_map, f"{name}: SPH-KDE truth (mesh-free)"),
             (axes[row, 1], g_map, f"grid 0.3125 kpc (rel-L2 {r_g312:.2f})"),

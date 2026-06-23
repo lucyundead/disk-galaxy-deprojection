@@ -834,17 +834,52 @@ Qin 2021 (MGE deprojection of barred galaxies). Key results:
   cannot do B/P; for dynamics the right metric is potential/orbits - the paper:
   <10% potential, 85% orbit match even without the peanut.)
 
-Next steps (for a fresh session): (1) compress the Fourier x (R,z) target to a few
-hundred coeffs via power-weighted (R,z) allocation per harmonic (m=6,8,10 carry
-~0.1% of the power); (2) wire the Fourier x (R,z) coefficients in as the
-deprojection TARGET (predict a_m(R,z) from the image, retrain MDN/flow); (3)
-potential/force validation via AGAMA CylSpline on Shen2010 (truth vs deprojection);
-(4) the peanut census still needs a proper B/P pipeline (the b4 metric is
-disk/bulge-confounded on real galaxies); (5) the user has more N-body models for
-strong-X training/validation (deferred). Artifacts: full uncapped TNG particles in
+Next steps: (1) DONE and (2) DONE (2026-06-23, see
+`docs/reports/2026-06-23-fourier-rz-target-deprojection.md`). (1) Power-weighted
+(R,z) compression: 2002 -> 496 coeffs (capture 0.95) at preserved 3D rel-L2 vs the
+SPH-KDE truth, still beating the grid on all three galaxies; high harmonics carry
+~0.5-1% (more shot-noise than the recalled ~0.1%), so m=6,8,10 drop and m=0,2,4
+keep full vertical resolution. (2) Wired the Fourier x (R,z) coefficients in as the
+deprojection target (built from the fine-z residual grids, no particles needed)
+and retrained MDN + a conditional flow: on the noisy TNG grid the Fourier target
+does NOT beat PCA-on-grid for 3D recovery (grid ~20% better on cell-mass MAE; they
+TIE on bar m=2 where the flow is best) because the even-m + (R,z) projection
+discards ~25% of the grid residual the grid PCA can still partly predict - the
+Fourier rep's value is smooth-truth fidelity (step 1) + potential-readiness, not
+prediction; confirms the image->coefficient predictability bottleneck. Now the
+even-m Fourier x (R,z) representation lives in `src/dgdp/fourier_rz.py` (tested).
+(3) DONE (2026-06-23, `docs/reports/2026-06-23-potential-force-validation.md`):
+potential/force validation on all three galaxies via a dependency-free isolated FFT
+Poisson/force solver (`src/dgdp/poisson_fft.py`; AGAMA CylSpline blocked - no C++
+compiler in the sandbox) . RESULT (after a softening/method robustness check,
+`scripts/check_potential_softening.py`): under a FAIR self-consistent comparison —
+every representation AND the particle reference run through the SAME FFT Poisson
+solver (no direct sum, no softening choice) — the Fourier x (R,z) rep is COMPETITIVE
+with the cylindrical grid on forces (full Fourier ~6-12% vs grid ~6-23%), and is
+BETTER on the extended lower-N disk 554189. An earlier draft used only a direct-sum
+reference at one softening (eps=0.3) and overstated the grid's advantage as ~3-4x;
+that gap was an artifact — the direct sum penalizes smooth reps for sub-resolution /
+N-body-discreteness force fluctuations they legitimately smooth (and the error swings
+~10x over eps=0.05-1.0). So "potential-ready" is SUPPORTED: forces comparable to the
+grid (better at low N), smooth/analytic/cheap CylSpline form. The rotation curve
+v_c(R) still favors the grid (Fourier 10-20 vs grid 3-7 km/s) but that's a separate
+coarse-radial-knot effect (more R-knots would close it), not the force-method issue. Still open: (4) the peanut census still needs
+a proper B/P pipeline (the b4 metric is disk/bulge-confounded on real galaxies);
+(5) the user has more N-body models for strong-X training/validation (deferred). MASS-CONSERVING DEPROJECTION (2026-06-23,
+`scripts/deproject_fourier_rz_conserving.py`, report
+`docs/reports/2026-06-23-fourier-rz-target-deprojection.md`): re-parameterized
+a_m(R,z)=Sigma_m(R)*q_m(z;R), int q_m dz=1, with Sigma_m(R) measured from the
+deprojected image (baseline) and the normalized vertical profiles q_m predicted.
+Total mass = image mass EXACTLY by construction (only m=0 carries net mass); held-out
+recovery ~ the grid pipeline (cell-mass MAE 6.26e5 vs 5.93e5, rel-L2 0.438 vs 0.428)
+while the grid pipeline DRIFTS 6.8% off the image mass. Residual mass-vs-truth (7.5%)
+= the baseline deprojection floor (fix w/ a 1-scalar Sigma_0 correction). Diagnostic:
+true vertical profiles on the image anchor are no better than predicted => the
+bottleneck is the radial deprojection Sigma_m(R), not the vertical model. This is the
+recommended deprojection backbone; next: smooth knots + flow + Sigma_0 correction +
+m>0 projection-consistency. Artifacts: full uncapped TNG particles in
 `/mnt/e/dgdp-fullparticles/`, Shen2010 data/cache in `outputs/nbody_shen2010/`,
-figures in `outputs/nbody_shen2010/figures/`. All this session's scripts are
-untracked (see git status); commit before continuing.
+figures in `outputs/nbody_shen2010/figures/`.
 
 ## Current Git State To Expect
 
