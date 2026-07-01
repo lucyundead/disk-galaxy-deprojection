@@ -31,6 +31,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--disk-pa-deg", type=float, default=0.0)
     parser.add_argument("--normal-radius-kpc", type=float, default=30.0)
     parser.add_argument("--bar-radius-kpc", type=float, default=5.0)
+    parser.add_argument("--galaxy-index", type=int, default=-1,
+                        help="0-based index into unique subhalo_id; -1 = all (for PBS-array sharding)")
     return parser.parse_args()
 
 
@@ -261,8 +263,12 @@ def build_images_for_galaxy(
 def main() -> None:
     args = parse_args()
     cfg = load_config(args.config)
+    base = pd.read_csv(args.manifest)
+    if args.galaxy_index >= 0:  # PBS-array sharding: process only the Nth unique galaxy
+        sub_ids = base["subhalo_id"].drop_duplicates().tolist()
+        base = base[base["subhalo_id"] == sub_ids[args.galaxy_index]].reset_index(drop=True)
     manifest = expand_projection_grid(
-        pd.read_csv(args.manifest),
+        base,
         inclinations_deg=parse_float_list(args.inclinations_deg),
         bar_angles_deg=parse_float_list(args.bar_angles_deg),
         disk_pa_deg=args.disk_pa_deg,

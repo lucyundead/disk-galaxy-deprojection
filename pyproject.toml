@@ -34,3 +34,6 @@ pythonpath = ["src"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# NGC4371/ holds a collaborator's S4G/GALFIT/MGE reference data + notebooks (B. Tahmasebzadeh),
+# not project source -- don't lint it.
+extend-exclude = ["NGC4371"]

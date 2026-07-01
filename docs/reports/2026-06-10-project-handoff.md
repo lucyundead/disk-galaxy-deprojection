@@ -910,6 +910,189 @@ on our predicted density (no retrain). Also still open: flow + m>0 projection-co
 the conserving target; AGAMA potential/orbit demo end-to-end from one image; the deferred
 N-body library / B-P census.
 
+SESSION UPDATE 2026-06-24 (route B, NOT yet committed - report
+`docs/reports/2026-06-24-route-b-agama-native-density.md`): both route-B items done.
+- (1) AGAMA-NATIVE COEFF ORACLE - REFUTED (`scripts/agama_density_oracle_prototype.py`). Built the
+  density as an AGAMA DensityAzimuthalHarmonic on a fixed grid+mmax+symmetry; export()/re-import
+  round-trips the coefficients EXACTLY (3-5e-14). On the 3 reference galaxies' smooth SPH-KDE truth,
+  AGAMA AZH (mmax=6, 2500 coeff) TIES the Fourier x (R,z) full 14x13 (2002 coeff) - 0.387/0.337/0.372
+  vs 0.385/0.307/0.370 - and is WORSE than Fourier full 25x25 (0.351/0.293/0.345); mmax=10 is worse
+  still (fits m>=6 shot noise). Forces (AGAMA CylSpline vs particle gold) erratic: AZH best on
+  Shen/392276 (0.011/0.016) but worst on extended-low-N 554189 (0.078) vs Fourier 0.019/0.028/0.029.
+  AGAMA AZH and our Fourier rep are the SAME representation class (even-m azimuthal harmonics x smooth
+  (R,z) maps); the finer quintic spline can't recover the odd-m / fine-cell structure that caps the
+  deprojection oracle (Fourier oracle flat above ~600 coeff). So the AGAMA-coeff oracle is NOT clearly
+  better -> the gate FAILS -> NO full MDN/flow retrain. Confirms+sharpens the expectation
+  (prediction is PCA-32 / image->coeff limited, not representation-limited).
+- (2) to_agama_density() HELPER + DEMO DONE (`src/dgdp/agama_density.py`,
+  `tests/test_agama_density.py`, `scripts/agama_predicted_potential_demo.py`). Wraps a predicted
+  Fourier x (R,z)/conserving density as a native agama.Density (+ agama.Potential), NO retrain, with
+  the predicted total mass preserved EXACTLY (harmonic fit is linear -> one rescale; residual ~1e-15).
+  End-to-end demo on held-out TNG 554189 (image -> adopted grid-MDN predicted density loaded from
+  mdn_z5 predictions -> agama.Potential -> v_c + orbits): mass exact, predicted v_c matches the
+  truth-density potential to rms 3.4 km/s (R<15), orbits well behaved. ruff clean; pytest 111 passed
+  /1 skipped (115 with AGAMA on PYTHONPATH). Frozen fourier_rz_allocation.json NOT regenerated.
+  Still open (unchanged): conditional flow + m>0 projection-consistency on the conserving target; the
+  deferred N-body library / B-P census.
+
+REAL-IMAGE TEST 2026-06-24 (NOT committed - report `docs/reports/2026-06-24-ngc4321-real-image-deprojection.md`):
+first end-to-end deprojection of a REAL S4G image (NGC 4321 / M100, `NGC4321_m_c_r_f.fits` in repo root;
+3.6um, MJy/sr, 0.75"/pixel, stars subtracted). Confirmed the FITS is the ORIGINAL observed mosaic, NOT
+pre-deprojected (isotropic CD 0.7500"/0.7500", SIP, ICRS at the galaxy; outer-disk eps~0.10-0.14 = inclined).
+S4G geometry i=34.6 deg, disk PA=158.2 deg, D=15.2 Mpc (pixel 0.0553 kpc), M* normalized 6e10. Pipeline =
+image-anchored mass-conserving even-m Fourier x (R,z) (scripts/deproject_real_image_ngc4321{,_learned}.py)
+-> agama.Potential. FINDINGS: (1) IN-PLANE recovery is solid + observationally anchored - isophote ellipse
+fit (scripts/ellipse_fit_ngc4321.py, photutils) recovers NGC4321's DOUBLE bar (nuclear a~0.6 kpc eps0.6;
+main bar deprojected a=4.75 kpc b/a=0.43, matches the user's students' bar), and the stellar v_c ~160 km/s
+(M*=6e10; full ~210 needs DM+gas) with finer-R structure. (2) VERTICAL structure is prior-dominated (a
+face-on image gives NO vertical constraint): geometric sech^2 h=0.3 kpc is too thin; the TNG-learned q_m is
+much thicker + FLARING (RMS|z| 0.5->2 kpc) - direction reasonable (old disk/bulge/bar are thick) but the
+ABSOLUTE thickness is OOD/unconstrained; do NOT call it "over-thickening" of the truth. (Whether TNG's q_m is
+"too thick" is a HYPOTHESIS, NOT measured this session - the "softening-inflated" claim was inferred, not
+verified. OPEN PREREQUISITE: measure the TNG sample's stellar h_z(R) from the milestone2d truth grids
+(RMS|z|(R) per galaxy, 185 gal) and compare to a real edge-on h_z sample (e.g. Comeron+2018) to learn whether
+thickness is even the OOD axis or whether the OOD is morphology, TNG barred mocks vs real grand-design spiral.) (3) b4/boxiness test (scripts/peanut_strength_ngc4321.py): learned edge-on is
+NOT a peanut (median b4 -0.016 neutral vs Shen +0.042); it rounds the disk (q 0.16->0.51), doesn't pinch; the
+earlier "central double-peak" was a y=0 SLICE artifact (projection is single-peaked). (4) FINER R w/o RETRAIN:
+the conserving anchor Sigma_m(R) is image-measured so --n-r-out 128 (log) re-measures it finely + interpolates
+the fixed-knot q_m; resolves the inner v_c structure. v_c by direct-sum (rep caps radial at ~25 knots). Controlled
+test (scripts/thick_disk_vc_test.py) confirms thick CENTER -> ~30-50% lower central force (user's physics), but
+the learned flares so v_c ~unchanged. NEW DEPS installed in .venv: astropy, photutils (binary wheels; FITS/WCS
++ isophote fitting). New module src/dgdp/agama_density.py (+ tests/test_agama_density.py). ruff clean.
+
+NEXT SESSION (user's choice, do NOT start until asked): make the deprojection NOT-OOD by RETRAINING the q_m
+vertical head on training truth whose vertical scale spans REAL galaxies. The user explicitly REJECTED the
+lazy alternative (swapping in external h_z scaling relations) - using other people's results makes the learned
+method meaningless; the learned model IS the point. Plan:
+  STEP 1 (prerequisite, cheap, data already on disk): measure the TNG50 milestone sample stellar h_z(R) -
+    RMS|z|(R) per galaxy from the milestone2d truth grids (/mnt/e/dgdp-milestone2d/density_residual_table.npz,
+    truth_density, 185 gal) - and compare the distribution to a real edge-on h_z sample (Comeron+2018 S4G
+    edge-ons give thin/thick h_z for ~140 galaxies). This decides the OOD axis: (a) if TNG h_z overlaps real,
+    thickness is NOT the OOD - the OOD is morphology (TNG barred mocks vs a real grand-design spiral) and option
+    2 should broaden the morphology/training distribution; (b) if TNG is systematically thicker, the
+    softening/resolution-inflation hypothesis holds and the retrain truth must span realistic h_z.
+  STEP 2: retrain q_m on the chosen truth - the deferred N-body library (the user has more N-body models; can be
+    built with controlled/varied, realistic vertical structure) and/or a TNG vertical-scale correction. Then
+    re-apply to NGC4321 and re-check (b4, edge-on, v_c). Frozen fourier_rz_allocation.json stays as-is unless
+    intentionally re-deriving the target.
+  QUICK CHECK done 2026-06-24 (scripts/ngc4321_comeron_vs_learned.py, fig outputs/real_images/
+    ngc4321_comeron_vs_learned.png): swapping the learned q_m for a representative Comeron+2018 thin+thick
+    sech^2 prior (h=0.4/1.2 kpc, f_thick=0.3 at M*~6e10) gives RMS|z|(R<12)=0.67 kpc vs the TNG-learned
+    1.54 kpc -> the learned PREDICTION is ~2.3x thicker than the published thin+thick decomposition AND flares
+    (Comeron disks ~non-flaring). This is the learned OUTPUT vs published (a yardstick / motivation); STEP 1
+    above still measures raw TNG TRUTH h_z vs Comeron. Caveat: Comeron h_z is disk-only - the bulge/bar is a
+    separate thicker component, so the prior is a disk-level lower bound in the bar region; defaults are
+    CLI-overridable (NGC4321 is face-on, no direct edge-on h_z).
+
+STEP 1 DONE 2026-06-25 (report `docs/reports/2026-06-25-tng-vertical-scale-vs-comeron.md`; NOT committed):
+measured the 185-galaxy TNG milestone-2d truth h_z and compared to Comeron+2018 (A&A 610 A5, the user's PDF).
+Scripts `scripts/measure_tng_vertical_scale.py` + `scripts/compare_tng_comeron_vertical.py`; outputs in
+`outputs/tng50_vertical_scale/`. VERDICT = BOTH axes, separable: (1) thick-disc h_z OVERLAPS real at the
+masses where the TNG sample lives (zT ratio 1.8x@vc120 -> 1.1x@vc210 -> crossover ~vc235/logM10.95; sample
+median logM10.67~vc205), so gross thick over-thickening is NOT confirmed; (2) softening/resolution inflation
+IS real but localized to the THIN disc (pinned at ~0.5 kpc grid+softening floor, real zt 0.17-0.35) and the
+LOW-mass end (1.8x@vc120); BUT sample-weighted this is MILD -- per-galaxy RMS|z| (the metric driving the
+potential) median TNG/Comeron ratio = 1.07 over the whole >1e9.5 selection (thick-h_z 1.01 / RMS 0.98 for
+logM>10.5; 81% within +-40%), so for the END-TO-END purpose thickness is LARGELY NOT the OOD. (3) REFRAMED
+(user 2026-06-25): the stellar HALO is the CORRECT target, NOT contamination -- a low-incl image integrates
+ALL stellar density along z (disc+bulge+halo), so the deprojection target IS total stellar density; TNG's
+total-density truth is right, and the high f_thick (RISES 0.42->0.81 vs real MT/Mt FALLING) + flaring are
+largely the LEGITIMATE halo+CMC in total light. Comeron's disk-only fit is the WRONG reference for f_thick and
+UNDER-states real total-light thickness (true over-thickening < 1.07). Left as OOD: unresolved thin disc
+(minor for v_c), whether TNG's OWN halo is realistic (softening/halo-mass tensions, unverifiable face-on), and
+MORPHOLOGY (TNG massive-BARRED-only, no grand-design spirals). CONVENTION FIXED: Comeron's
+zt,zT are EXPONENTIAL scale heights (= our sech^2(z/2h) h, direct, no factor 2) - verified vs their MW check.
+BIG CORRECTION: the 2026-06-24 "learned q_m 2.3x thicker than Comeron" alarm was an ARTIFACT of a too-thin /
+convention-confused representative prior (0.4/1.2 treated as z0 = exp 0.2/0.6, RMS 0.67); Comeron's ACTUAL
+Eq.18 at NGC4321 (logM10.8, vc~210) gives exp zt~0.30/zT~1.6, real thin+thick RMS|z|~1.6-1.7 kpc -> the
+learned 1.54 kpc is REALISTIC, not 2.3x too thick. N-BODY RETRAIN VERDICT (user asked 2026-06-25): largely
+NOT needed / would be a step BACKWARD -- the deferred N-body library is PURE-DISC (no stellar halo), so
+retraining q_m on it predicts too-THIN total-light density (reintroduces the OOD inverted); and isolated
+collisionless discs make bars+B/P+flocculent arms, NOT the gas-driven grand-design of NGC4321, so it does NOT
+fill the morphology gap either (same barred/B-P class as TNG, just more B/P diversity). Keep N-body as a
+controlled B-P/X-recovery VALIDATION set (the Shen2010 role), not training. If option 2 proceeds it is for
+MORPHOLOGY: broaden the HYDRO (TNG) selection (drop barred-only; add unbarred/lower-mass/spiral-dominated,
+which KEEP their halos) -- NOT swap in pure-disc N-body. Thickness mostly fine -> cheapest next step is
+validating the current q_m on more real images. (One external input, stated: M*->vc via an MW-anchored
+stellar Tully-Fisher for axis alignment only, not in any h_z.)
+Frozen `outputs/nbody_shen2010/fourier_rz_allocation.json` untouched. ruff clean; pytest 111 passed/1 skipped.
+
+NGC 4371 MGE-VALIDATION 2026-06-25 (report docs/reports/2026-06-25-ngc4371-mge-validation.md; NOT committed):
+tried the learned q_m on NGC 4371, a real SB0 from B. Tahmasebzadeh (S4G image+PSF+mask+GALFIT+MGE staged in
+NGC4371/), and compared to his INDEPENDENT MGE deprojection. The learned NGC4321 pipeline now runs on WCS-less
+S4G cutouts via new flags (--galaxy-name/--pix-arcsec/--pa-pix-deg/--center-x/-y/--mask) on
+deproject_real_image_ngc4321_learned.py; geometry from GALFIT i=58(=arccos 0.536)/PA_pix~1.8(=90+GALFIT -88.2)/
+0.75"/pix/centre(254.6,152.8)/D=16.194, M*=3.53e10 (M/L=1, matches MGE). i=58 is IN the TNG range (mocks 20/40/60).
+MGE benchmark scripts/ngc4371_mge_benchmark.py: viewing angle (59,-11,89), disk intrinsic q~0.28, thin bar,
+RMS|z| flares 0.3->2.3, v_c peak 178. RESULT (scripts/compare_ngc4371_learned_vs_mge.py, fig
+outputs/real_images/ngc4371_learned_vs_mge.png): our learned RMS|z|(R) MATCHES the MGE to ~15-20% over
+R=0.5-8 kpc (both flare 0.5->~1.6-2; thin sech2 baseline 0.27 is 3-6x too thin) -> the learned thick+flaring q_m
+is INDEPENDENTLY VALIDATED on a real galaxy (physical, not a TNG artifact; strengthens the Step-1 'thickness is
+not the OOD' verdict). v_c: our BASELINE peak 182 matches MGE 179 (geometry+total mass correct). BUG FOUND+FIXED:
+the conserving reconstruction didn't preserve Sigma(R) on this strong-barred/peaked SB0 (max rel 198%, central
+mass frac R<3 0.52->0.24, half-mass R 5.0 vs MGE/image 2.6-2.9 kpc) -> depressed learned v_c to 131 (v_c^2~M(<R)/R;
+RMS|z| is a per-R moment so it stayed validated -- the gap was purely RADIAL, not vertical). Root cause:
+reconstruct_smooth normalises int q dz=1 on the KNOT grid but resampling to the fine z grid drifts Sigma(R) for an
+OOD q. FIX (in predict_learned): re-impose the image anchor per column -- keep the vertical shape, set
+int(rho dz)=Sigma_image(R,phi). After fix: Sigma(R) preserved to 0.2%, learned v_c peak 175 ~= MGE 179, RMS|z|
+unchanged; fix is universal (~no-op for the already-conserved NGC4321). DENSITY COMPARISON:
+scripts/plot_ngc4371_density_comparison.py (fig outputs/real_images/ngc4371_density_faceon_edgeon.png) -- face-on
+(bar along x) + edge-on (thick, flaring) both match the MGE; learned render z-symmetrised + tapered(R>11) +
+percentile-scaled + grid-offset to remove the hot-pixel/x=0-seam/large-R/z-asymmetry rendering artifacts (q_m
+itself still slightly z-asymmetric -> enforcing z-symmetry at source is an optional pipeline tidy-up, no v_c/inner
+impact). NGC4371 validation COMPLETE: vertical AND v_c match the MGE. ROTATION CURVE + BAR
+(scripts/compare_ngc4371_vc_and_bar.py, fig outputs/real_images/ngc4371_vc_and_bar.png): azimuthally-averaged
+AGAMA v_c match (learned peak 179 vs MGE 183); bar A2(R) profile -- learned(=deprojected image) peak 0.33@R3.4
+vs MGE 0.17@R2.3, i.e. the MGE's few-Gaussian bar is ~2x WEAKER in m=2 while our image-anchored in-plane keeps
+the full bar strength (relevant for bar dynamics; the v_c is m=0-dominated so it agrees regardless).
+
+PARAMETRIZATION PRE-CHECK 2026-06-25 (scripts/test_mixture_vs_freeknot.py, fig
+outputs/tng50_vertical_scale/mixture_vs_freeknot.png; NOT committed): before committing to an option-2 retrain,
+tested whether a CONSTRAINED positive symmetric vertical MIXTURE can replace the free-knot q_m. On the 185-gal
+milestone-2d truth vertical profiles (m=0; m=2 similar), fit by ridge-stabilised NNLS over a sech^2/Gaussian
+height dictionary: a 2-3 component sech^2 mixture is AT LEAST as good as the free-knot AND much better on the
+physical RMS|z| moment -- rel-L2 med free-knot 0.087 vs sech2 best-2 0.027 / best-3 0.015; RMS|z| frac err med
+free-knot 0.183(!) vs best-2 0.116 / best-3 0.052; median 3 components used. WHY the mixture wins: the free-knot's
+sparse outer |z|-knots (0.97/1.95/4.0, clipped at z_max=4) FLATTEN the wings -> 18% RMS|z| error; the mixture's
+dedicated thick/halo component captures them. sech^2 preferred over Gaussian for FEW components (exp tails; a
+full 10-Gaussian dict also fits but that is overkill). => GREEN LIGHT: bake a ~3-component positive,
+midplane-centered sech^2 mixture into the TRAINING parametrization (gives z-symmetry + positivity + int q dz=1
+BY CONSTRUCTION, at NEGATIVE accuracy cost) instead of post-hoc reconstruction patches; ~3 comps ~ thin+thick+halo,
+consistent with the total-light target. Caveat: the free-knot baseline here is a linear-interp reproduction of
+the knot rep, but the wing-knot sparsity is inherent so the win holds qualitatively.
+
+MIXTURE RETRAIN SCOPE + STEPS 1-2 DONE 2026-06-25 (scope doc docs/reports/2026-06-25-mixture-qm-retrain-scope.md;
+NOT committed): user confirmed 4 design decisions -- (1) PER-GALAXY-SCALED heights, (2) positive weights +
+SIGNED fallback for B/P (m=2), (3) keep PCA + clip/renorm, (4) NEW mixture config (frozen allocation untouched).
+Built src/dgdp/vertical_mixture.py (sech^2 kernels phi_k=sech^2(z/2 s a_k)/(4 s a_k); per-galaxy scale
+s=mean disk RMS|z|/1.814; NNLS/lstsq weights; reconstruct; __main__ self-check) + de-risk
+scripts/test_mixture_pergalaxy.py. DE-RISK RESULT on milestone-2d truth (heights = s*{0.3,0.7,1.5,3.0}, K=4):
+m=0 per-galaxy K=4 rel-L2 0.013 / RMS|z| frac-err 4.6% (p90 15%) vs free-knot 0.087 / 18% (p90 30%) -- K=4 (only
+4 weights) matches the dense 10-height dict; K=3 = 0.028/10%. m=2: positive-only K=4 median 0.050 but p90 0.188
+(>free-knot 0.154); SIGNED fallback recovers p90 to 0.139 (RMS|z| undefined for a signed m=2 modulation -- rel-L2
+only). => design VALIDATED. NEXT = step 3: wire the mixture target + reconstruct into deproject_fourier_rz_conserving.py
+(+ new config), retrain, compare recovery metrics; then mirror in deproject_real_image_ngc4321_learned.py (delete
+the post-hoc anchor/symmetrise/taper) and re-run NGC4321/4371. ruff clean.
+
+RICHER-GRID REBUILD RUNNING ON CLUSTER 2026-06-29 (orchestration scripts/_milestone2d_richgrid_cluster.py; NOT
+committed): rebuilding the milestone-2d sample at a richer grid + R=64 for the mixture retrain. Grid = inclination
+10-60 step5 (11) x bar -80..90 step10 (18) = 198 proj/galaxy x 185 = 36,630 rows; R=64 log (n_phi48, n_z32, z_max5).
+Decisions (user): NO negative inclinations (degenerate with +i & flipped bar for a midplane-symmetric disk, already
+spanned; q_m is z-symmetric anyway); -90 dropped (=+90 for an m=2 bar). CLUSTER IS TORQUE/PBS (Maui), NOT SLURM:
+qsub/qstat; queue 'normal' (36 nodes/48h). The image builder re-projects all particles per view (~15s/proj,
+~50min/galaxy at 198 proj -> ~6 days serial), so it's a PBS job ARRAY: build_tng50_all_particle_images.py got a new
+--galaxy-index (subset to Nth galaxy, backward-compat); each task -> shard outputs/tng50_milestone2d_rich/shards/<i>/.
+VALIDATED on a 2-task array (correct per-galaxy shards). JOBS (submitted 2026-06-29): 404003[] = image array (185
+tasks, -t 0-184%20, 16gb/2h each, ~8h wall, 20 running/165 held at launch); 404008 = truth R=64 (single job, ~1.5-6h,
+PARALLEL/independent of images). Monitor: `.venv/bin/python scripts/_milestone2d_richgrid_cluster.py qstat`
+(also modes shards/check). RESUME in order once each finishes: (1) array done -> `... merge` (login concat shards ->
+.../residual_table.npz + manifest.csv); (2) merge + 404008 done -> `... table` (PBS baseline + density_residual_table
+-> density_residual_table.npz, ~36GB = truth+baseline+images per-row at R=64 x36,630 -- STAYS ON CLUSTER, too big to
+fetch); (3) wire src/dgdp/vertical_mixture.py (per-galaxy-scaled K=4 sech^2, validated) into
+deproject_fourier_rz_conserving.py target+reconstruct (NOT yet done), RETRAIN ON THE CLUSTER (paicos-conda has torch),
+fetch only model/metrics/figures. base_manifest.csv (185 gal; split 111/37/37) already written. ruff clean; nothing
+committed; frozen fourier_rz_allocation.json untouched.
+
 ## Current Git State To Expect
 
 The last clean checkpoint before the physical-summary calibration work was:

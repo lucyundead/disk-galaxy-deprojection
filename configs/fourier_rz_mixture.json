@@ -1,0 +1,6 @@
+{
+  "_comment": "Mixture q_m parametrization sizing. NEW file: the free-knot outputs/nbody_shen2010/fourier_rz_allocation.json is FROZEN and untouched. allocation = {m: [n_R_knots, K]} (radial knot counts mirror the frozen allocation 12/8/6; K = number of vertical mixture weights per knot = len(heights)). heights = FIXED sech^2 height dictionary [kpc], thin->halo (geomspace 0.2..3.5, K=7): thickness is carried by which heights get weight (the predicted weight vector), NOT a per-galaxy scalar -- a single predicted scale regresses to the mean and mis-sizes OOD galaxies.",
+  "allocation": {"0": [12, 7], "2": [8, 7], "4": [6, 7]},
+  "knot_params": {"r_max": 15.0, "r_min": 0.12},
+  "heights": [0.2, 0.322, 0.519, 0.837, 1.348, 2.172, 3.5]
+}

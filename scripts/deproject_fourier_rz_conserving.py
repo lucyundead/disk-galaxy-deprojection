@@ -34,8 +34,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from dgdp.density3d import cylindrical_bin_volumes, make_cylindrical_grid_spec
-from dgdp.fourier_rz import _trapezoid_weights, r_knots, z_knots
+from dgdp import vertical_mixture as vm
+from dgdp.density3d import CylindricalGridSpec, cylindrical_bin_volumes
+from dgdp.fourier_rz import r_knots
 from deproject_fourier_rz_compare import _interp_matrix, fit_pca, train_mdn
 from train_density_residual_pca import make_density_residual_features, standardize_with_train
 
@@ -50,29 +51,31 @@ def harmonics(field, dz):
     return a, sigma
 
 
-def sep_resample(cmap, r_src, z_src, r_dst, z_dst):
-    """Separable bilinear resample of (rows, R, z) maps between knot/grid axes."""
-    w_r, w_z = _interp_matrix(r_src, r_dst), _interp_matrix(z_src, z_dst)
-    return np.einsum("Rr,nrz,Zz->nRZ", w_r, cmap, w_z)
+def r_resample(cmap, r_src, r_dst):
+    """Bilinear resample only the R axis of (rows, R, z) maps (z handled by the mixture)."""
+    return np.einsum("Rr,nrz->nRz", _interp_matrix(r_src, r_dst), cmap)
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--table", type=Path, default=Path("/mnt/e/dgdp-milestone2d/density_residual_table.npz"))
-    ap.add_argument("--allocation", type=Path, default=Path("outputs/nbody_shen2010/fourier_rz_allocation.json"))
+    ap.add_argument("--allocation", type=Path, default=Path("configs/fourier_rz_mixture.json"))
     ap.add_argument("--output-dir", type=Path, default=Path("outputs/nbody_shen2010"))
     ap.add_argument("--n-comp", type=int, default=32)
     ap.add_argument("--n-samples", type=int, default=128)
     ap.add_argument("--epochs", type=int, default=400)
     ap.add_argument("--seed", type=int, default=20260623)
+    ap.add_argument("--skip-grid-mdn", action="store_true",
+                    help="skip the non-conserving full-grid PCA baseline (exact SVD is O(rows^2 * cells) "
+                         "-- infeasible at R=64); the mixture conserving variants don't need it")
     args = ap.parse_args()
 
     payload = json.loads(args.allocation.read_text(encoding="utf-8"))
-    alloc = {int(m): (int(a), int(b)) for m, (a, b) in payload["allocation"].items()}
+    alloc = {int(m): (int(a), int(b)) for m, (a, b) in payload["allocation"].items()}  # (n_R_knots, K)
     kp = payload["knot_params"]
-    knots = {m: (r_knots(nr, kp["r_max"], kp["r_min"]), z_knots(nzh, kp["z_max"], kp["z_min"]))
-             for m, (nr, nzh) in alloc.items()}
-    wz = {m: _trapezoid_weights(knots[m][1]) for m in alloc}
+    heights = np.asarray(payload["heights"], dtype=float)  # fixed sech^2 dictionary [kpc]
+    rk_by_m = {m: r_knots(nr, kp["r_max"], kp["r_min"]) for m, (nr, _k) in alloc.items()}
+    k_by_m = {m: len(heights) for m in alloc}
 
     table = np.load(args.table)
     split = table["split"].astype(str)
@@ -82,7 +85,8 @@ def main() -> None:
     r_grid = 0.5 * (r_edges[:-1] + r_edges[1:])
     z_grid = 0.5 * (z_edges[:-1] + z_edges[1:])
     phi_centers = 0.5 * (phi_edges[:-1] + phi_edges[1:])
-    vol = cylindrical_bin_volumes(make_cylindrical_grid_spec(z_max_kpc=float(z_edges[-1]), n_z=len(z_edges) - 1)).astype(np.float32)
+    # vol from the table's OWN edges (not a defaulted spec) -- the grid is R=64 now, not 32.
+    vol = cylindrical_bin_volumes(CylindricalGridSpec(r_edges, phi_edges, z_edges)).astype(np.float32)
 
     truth = table["truth_density"].astype(np.float32)
     baseline = table["baseline_density"].astype(np.float32)
@@ -150,29 +154,28 @@ def main() -> None:
     results = {"geom_baseline": recovery(baseline_mass[test])}
 
     # ---- current PCA-on-grid pipeline (non-conserving residual) ----
-    resid = ((truth_mass - baseline_mass) / baseline_total[:, None, None, None]).astype(np.float32).reshape(truth.shape[0], -1)
-    coeff, vec, mean = fit_pca(resid, train, args.n_comp)
-    y_all, y_mean, y_std = standardize_with_train(coeff, train)
-    mdn = train_mdn(x_all, y_all, train, val, seed=args.seed, epochs=args.epochs)
-    with torch.no_grad():
-        delta = ((mdn.sample(torch.tensor(x_all[test]), args.n_samples).numpy().mean(axis=1) * y_std + y_mean) @ vec + mean)
-    grid_pred = baseline_mass[test] + delta.reshape(test.sum(), *truth.shape[1:]) * baseline_total[test, None, None, None]
-    results["grid_mdn"] = recovery(grid_pred)
-    del resid
+    if not args.skip_grid_mdn:
+        resid = ((truth_mass - baseline_mass) / baseline_total[:, None, None, None]).astype(np.float32).reshape(truth.shape[0], -1)
+        coeff, vec, mean = fit_pca(resid, train, args.n_comp)
+        y_all, y_mean, y_std = standardize_with_train(coeff, train)
+        mdn = train_mdn(x_all, y_all, train, val, seed=args.seed, epochs=args.epochs)
+        with torch.no_grad():
+            delta = ((mdn.sample(torch.tensor(x_all[test]), args.n_samples).numpy().mean(axis=1) * y_std + y_mean) @ vec + mean)
+        grid_pred = baseline_mass[test] + delta.reshape(test.sum(), *truth.shape[1:]) * baseline_total[test, None, None, None]
+        results["grid_mdn"] = recovery(grid_pred)
+        del resid
 
-    # ---- (step 3) smooth-knot conserving target: q_m(z;R) on power-allocated knots ----
-    floor = 1e-3 * np.abs(sigma_true[0]).max(axis=1, keepdims=True)
-    target_parts, q_true_knot = [], {}
+    # ---- (step 3) conserving target: per-galaxy-scaled sech^2 mixture weights w_{m,k}(R) ----
+    # Replaces the free z-knot q_m: the network now predicts K=4 vertical-mixture weights per
+    # radial knot; q is rebuilt z-symmetric, >=0, int q dz=1 by construction (vertical_mixture).
+    target_parts = []
     for m in EVEN_M:
-        rk, zk = knots[m]
-        a_knot = sep_resample(a_true[m], r_grid, z_grid, rk, zk)          # (rows, nRk, nzk)
-        sig_knot = (a_knot * wz[m][None, None, :]).sum(axis=2)            # int a dz on knots -> (rows, nRk)
-        mask = (np.abs(sig_knot) > floor)[:, :, None]
-        q = np.where(mask, a_knot / np.where(np.abs(sig_knot) > 0, sig_knot, 1.0)[:, :, None], 0.0)
-        q_true_knot[m] = q
-        target_parts.append(q.real.reshape(q.shape[0], -1))
+        rk = rk_by_m[m]
+        a_rk = r_resample(a_true[m], r_grid, rk)                          # (rows, nRk, nz), R-only
+        w = vm.weights_target(a_rk, z_grid, heights, signed=(m != 0))
+        target_parts.append(w.real.reshape(w.shape[0], -1))
         if m != 0:
-            target_parts.append(q.imag.reshape(q.shape[0], -1))
+            target_parts.append(w.imag.reshape(w.shape[0], -1))
     target = np.concatenate(target_parts, axis=1).astype(np.float32)
     coeff, vec, mean = fit_pca(target, train, args.n_comp)
     y_all, y_mean, y_std = standardize_with_train(coeff, train)
@@ -182,28 +185,28 @@ def main() -> None:
     pred_vec = (pred_scores * y_std + y_mean) @ vec + mean
 
     def reconstruct_smooth(vec_rows, anchor):
-        """Predicted q on knots -> renormalize -> anchor radial Sigma_m(R) -> grid density.
+        """Predicted mixture weights -> normalised q_m(z;R) -> anchor Sigma_m(R) -> grid density.
 
-        anchor: {m: (rows, nR_grid) complex}. Returns (clipped_mass, preclip_total); the
-        m>0 harmonics carry zero net mass, so preclip_total is the controlled m=0 total.
+        anchor: {m: (rows, nR_grid) complex}. q is z-symmetric, >=0 (m=0) and int q dz=1 by
+        construction (vertical_mixture.reconstruct) -- no post-hoc symmetrise/renorm/taper.
+        The m>0 harmonics carry zero net mass, so preclip_total is the controlled m=0 total.
         """
         rows = vec_rows.shape[0]
         rho = np.zeros((rows, len(r_grid), len(phi_centers), len(z_grid)))
         i = 0
         for m in EVEN_M:
-            rk, zk = knots[m]
-            size = len(rk) * len(zk)
-            re = vec_rows[:, i:i + size].reshape(rows, len(rk), len(zk))
+            rk, kk = rk_by_m[m], k_by_m[m]
+            size = len(rk) * kk
+            wre = vec_rows[:, i:i + size].reshape(rows, len(rk), kk)
             i += size
             if m == 0:
-                q = np.clip(re, 0.0, None).astype(np.complex128)
+                w = wre.astype(np.complex128)
             else:
-                im = vec_rows[:, i:i + size].reshape(rows, len(rk), len(zk))
+                wim = vec_rows[:, i:i + size].reshape(rows, len(rk), kk)
                 i += size
-                q = re + 1j * im
-            denom = (q * wz[m][None, None, :]).sum(axis=2)[:, :, None]      # int q dz on knots
-            q = q / np.where(np.abs(denom) > 1e-12, denom, 1.0)            # enforce int q dz = 1
-            q_grid = sep_resample(q, rk, zk, r_grid, z_grid)              # smooth knot -> grid
+                w = wre + 1j * wim
+            q_rk = vm.reconstruct(w, z_grid, heights, signed=(m != 0))   # (rows,nRk,nz)
+            q_grid = r_resample(q_rk, rk, r_grid)                         # smooth knot -> grid (R)
             a_m = anchor[m][:, :, None] * q_grid                          # anchor radial Sigma_m(R)
             if m == 0:
                 rho += a_m.real[:, :, None, :]
@@ -224,10 +227,12 @@ def main() -> None:
     results["fourier_cons_oracle_anchor"] = variant({m: sigma_true[m][test] for m in EVEN_M})
 
     # ---- report ----
-    order = ["geom_baseline", "grid_mdn", "fourier_cons_image_anchor", "fourier_cons_radial_m0",
-             "fourier_cons_radial_all", "fourier_cons_oracle_anchor"]
+    order = [k for k in ("geom_baseline", "grid_mdn", "fourier_cons_image_anchor", "fourier_cons_radial_m0",
+                         "fourier_cons_radial_all", "fourier_cons_oracle_anchor") if k in results]
     ntgt = dict.fromkeys(order, target.shape[1])
-    ntgt["geom_baseline"], ntgt["grid_mdn"] = "-", int(truth[0].size)
+    ntgt["geom_baseline"] = "-"
+    if "grid_mdn" in ntgt:
+        ntgt["grid_mdn"] = int(truth[0].size)
     print(f"\n{'method':>32} {'n_target':>9} {'cellMAE':>10} {'relL2':>7} {'massAcc':>8}")
     for name in order:
         r = results[name]
@@ -239,15 +244,20 @@ def main() -> None:
           "= radial-anchor headroom.")
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    (args.output_dir / "fourier_rz_conserving_metrics.json").write_text(
+    (args.output_dir / "fourier_rz_conserving_mixture_metrics.json").write_text(
         json.dumps({"n_comp": args.n_comp, "n_target_conserving": int(target.shape[1]), "results": results},
                    indent=2, sort_keys=True), encoding="utf-8")
-    print(f"wrote {args.output_dir / 'fourier_rz_conserving_metrics.json'}")
+    print(f"wrote {args.output_dir / 'fourier_rz_conserving_mixture_metrics.json'}")
 
     # ---- figure ----
-    labels = ["geom\nbaseline", "grid MDN", "cons.\nimage anchor", "cons.\n+radial m=0",
-              "cons.\n+radial all", "cons.\noracle anchor"]
-    colors = ["#999999", "#4c72b0", "#c44e52", "#dd8452", "#8172b3", "#55a868"]
+    label_by = {"geom_baseline": "geom\nbaseline", "grid_mdn": "grid MDN",
+                "fourier_cons_image_anchor": "cons.\nimage anchor", "fourier_cons_radial_m0": "cons.\n+radial m=0",
+                "fourier_cons_radial_all": "cons.\n+radial all", "fourier_cons_oracle_anchor": "cons.\noracle anchor"}
+    color_by = {"geom_baseline": "#999999", "grid_mdn": "#4c72b0", "fourier_cons_image_anchor": "#c44e52",
+                "fourier_cons_radial_m0": "#dd8452", "fourier_cons_radial_all": "#8172b3",
+                "fourier_cons_oracle_anchor": "#55a868"}
+    labels = [label_by[k] for k in order]
+    colors = [color_by[k] for k in order]
     fig, ax = plt.subplots(1, 3, figsize=(17, 4.6), constrained_layout=True)
     for axis, key, ylab, title in (
         (ax[0], "cell_mass_mae", "3D cell-mass MAE [Msun]", "Held-out 3D recovery"),
@@ -261,7 +271,7 @@ def main() -> None:
     fig.suptitle("Radial-anchor correction (a): image -> +Sigma_0(R) -> +Sigma_0,2,4(R) -> oracle "
                  "(shared vertical profiles)", fontsize=12)
     (args.output_dir / "figures").mkdir(parents=True, exist_ok=True)
-    fig_path = args.output_dir / "figures" / "fourier_rz_conserving_compare.png"
+    fig_path = args.output_dir / "figures" / "fourier_rz_conserving_mixture_compare.png"
     fig.savefig(fig_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"wrote {fig_path}")

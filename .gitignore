@@ -1,3 +1,4 @@
 outputs/
 __pycache__/
 *.py[cod]
+*Zone.Identifier
