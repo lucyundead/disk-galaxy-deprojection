@@ -63,8 +63,22 @@ basis per galaxy — the very adaptivity that breaks OOD) but keeps exact conser
 
 ## R=64 cluster retrain
 Job 404397 (PBS, mem=160gb, ppn=8, `--skip-grid-mdn`, fixed-dict config) on
-`density_residual_table.npz`. Output: `outputs/tng50_milestone2d_rich/mixture_retrain/`
-(fetched: metrics json + figure). _Numbers: PENDING — fill in when 404397 lands._
+`density_residual_table.npz`, 26 min. Output:
+`outputs/tng50_milestone2d_rich/mixture_retrain/` (metrics json + figure, stays on cluster).
+Held-out R=64 recovery, n_target 280:
+
+| variant | relL2 | massAcc | mass_cons_vs_image |
+|---|---|---|---|
+| geom_baseline | 0.530 | 0.079 | 0 |
+| cons. image_anchor | 0.522 | 0.079 | 4.1e-8 |
+| cons. +radial m=0 | 0.457 | 0.033 | 0.061 |
+| cons. +radial all | 0.455 | 0.033 | 0.061 |
+| cons. oracle_anchor | 0.433 | 5e-8 | 0.071 |
+
+Same pattern as R=32: **exact mass conservation** (4e-8), massAcc better than free-knot
+(0.033 vs 0.061), relL2 ~7 % above the per-galaxy R=64 run (0.455 vs 0.426 radial_all) — the
+OOD-robustness tradeoff. relL2 sits above R=32 purely from the finer grid (geom_baseline 0.530
+vs 0.495, parametrization-independent).
 
 ## Files (all UNCOMMITTED)
 - `src/dgdp/vertical_mixture.py`: `weights_target`/`reconstruct` now take an absolute `heights`
