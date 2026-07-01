@@ -20,7 +20,6 @@ by the training target builder + reconstructor). Run as a script for a self-chec
 from __future__ import annotations
 
 import numpy as np
-from scipy.optimize import nnls
 
 DEFAULT_RATIOS = np.array([0.3, 0.7, 1.5, 3.0])   # dimensionless thin -> halo
 RMS_PER_H = np.pi / np.sqrt(12.0)                  # RMS|z| of one sech^2(z/2h) = 1.814 h
@@ -48,6 +47,7 @@ def fit_weights(profile, zabs, s, ratios=DEFAULT_RATIOS, signed=False, ridge=1e-
     b = kernel_matrix(zabs, s, ratios)
     if signed:
         return np.linalg.lstsq(b, profile, rcond=None)[0]
+    from scipy.optimize import nnls  # optional (training only; not on the inference path)
     n = b.shape[1]
     ba = np.vstack([b, np.sqrt(ridge) * np.eye(n)])
     pa = np.concatenate([profile, np.zeros(n)])
@@ -88,6 +88,7 @@ def weights_target(a_rk, z_grid, heights, signed=False, floor_frac=1e-3):
             wi = np.linalg.lstsq(b, q[rr, jj].imag.T, rcond=None)[0]
             out[rr, jj] = (wr + 1j * wi).T
         else:
+            from scipy.optimize import nnls                            # optional (training only)
             for r, j in zip(rr, jj):                                   # NNLS is per-RHS
                 out[r, j] = nnls(b, q[r, j].real)[0]
     return out

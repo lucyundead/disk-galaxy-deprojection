@@ -29,7 +29,6 @@ target). Both return the same model dict consumed by
 from __future__ import annotations
 
 import numpy as np
-from scipy.interpolate import RegularGridInterpolator
 
 EVEN_M: tuple[int, ...] = (0, 2, 4, 6, 8, 10)
 
@@ -60,6 +59,7 @@ def _resample_complex(
     z_dst: np.ndarray,
 ) -> np.ndarray:
     """Bilinearly resample a complex (R,z) map from one knot grid to another."""
+    from scipy.interpolate import RegularGridInterpolator  # optional (fit/reconstruct only)
     query = np.array(np.meshgrid(r_dst, z_dst, indexing="ij")).reshape(2, -1).T
     shape = (len(r_dst), len(z_dst))
     re = RegularGridInterpolator((r_src, z_src), cmap.real, bounds_error=False, fill_value=None)(query)
@@ -166,6 +166,7 @@ def reconstruct_fourier_rz(points: np.ndarray, model: dict, *, nonneg: bool = Tr
     ``nonneg=True`` (default) clips to >=0 for a density; pass ``nonneg=False`` to
     reconstruct a signed field such as a baseline-subtracted residual.
     """
+    from scipy.interpolate import RegularGridInterpolator  # optional (fit/reconstruct only)
     radius = np.hypot(points[:, 0], points[:, 1])
     phi = np.arctan2(points[:, 1], points[:, 0])
     out = np.zeros(points.shape[0])

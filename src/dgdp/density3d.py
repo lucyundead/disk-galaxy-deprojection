@@ -5,7 +5,6 @@ from pathlib import Path
 from collections.abc import Iterable
 from typing import Any
 
-import h5py
 import numpy as np
 
 from dgdp.types import ParticleSet
@@ -221,6 +220,7 @@ def build_cylindrical_density_grid(
 
 
 def read_cylindrical_grid_spec_hdf5(path: Path) -> CylindricalGridSpec:
+    import h5py  # optional (only for hdf5 I/O; not needed on the deproject inference path)
     with h5py.File(path, "r") as handle:
         return CylindricalGridSpec(
             r_edges_kpc=np.asarray(handle["r_edges_kpc"], dtype=float),
@@ -273,6 +273,7 @@ def write_cylindrical_density_hdf5(
     attrs: dict[str, Any],
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    import h5py  # optional (only for hdf5 I/O; not needed on the deproject inference path)
     with h5py.File(path, "w") as handle:
         handle.create_dataset(
             "density_msun_per_kpc3",
