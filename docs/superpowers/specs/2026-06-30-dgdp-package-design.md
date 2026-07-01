@@ -70,9 +70,10 @@ knot params (`r_min,r_max`, per-mode `n_r`, `K=len(heights)`, `EVEN_M`), grid sp
 (`r_min,r_max,n_r,n_phi,z_max,n_z`), `image_feature_size`, `central_pixel_scale_kpc`, and the
 two TNG-train-median absolute mass features (for the OOD in-distribution substitution).
 
-**Provenance:** `scripts/train_deprojection_model.py` trains on the TNG milestone-2d table
-(R=32, local) and writes the bundle; the bundle is committed. Retraining needs the table +
-`[train]` extra. (R=64 model is a later drop-in.)
+**Provenance:** `scripts/train_deprojection_model.py` trains on the **R=64** TNG milestone-2d
+table (`density_residual_table.npz`) and writes the bundle. Because that table is ~31 GB (cluster
+only), the trainer runs as a cluster PBS job (like the retrain) and only the ~1 MB bundle is
+fetched + committed. Retraining needs the table + `[train]` extra.
 
 ## 5. Public API
 
@@ -142,13 +143,17 @@ absolute km/s requires one of the three.
 - **Photometric path correctness:** counts→luminosity needs the right zero-point convention;
   documented + a numeric example; direct-mass path is the safe default.
 - **AGAMA optional import** must never break core import — lazy import inside `potential` only.
-- **Model = R=32 fixed-dict** for v1 (NGC-validated); R=64 is a later swap of the bundle.
+- **Model = R=64 fixed-dict.** The R=64 conserving retrain is validated (exact conservation,
+  relL2 0.455); the R=64-trained bundle must be re-checked end-to-end on NGC 4321/4371 (the
+  earlier thickness validation used the R=32 model) — Phase 3.
 
 ## 11. Implementation phases (the plan will expand these)
 
 1. Port inference helpers into `dgdp/` (`image`, `features`, `harmonics`) with golden tests vs
    the current script's intermediate arrays.
-2. `model.py` + `scripts/train_deprojection_model.py` → produce & commit the bundle; parity test.
-3. `deproject.py` + `DeprojectionResult` + `rotation.py`; end-to-end test.
+2. `model.py` + `scripts/train_deprojection_model.py`; run the trainer on the cluster (R=64),
+   fetch + commit the ~1 MB bundle; numpy↔torch parity test.
+3. `deproject.py` + `DeprojectionResult` + `rotation.py`; end-to-end test + NGC 4321/4371
+   re-check with the R=64 bundle (thickness + conservation hold).
 4. `cli.py` + entry point; CLI test.
 5. `pyproject.toml` deps/extras/package-data; README (install, quickstart, M/L, AGAMA, method).
