@@ -251,11 +251,23 @@ def retrain_pbs(out: str) -> list[str]:
             f"qsub {out}/dgdp_retrain.pbs"]
 
 
+def train_bundle_pbs(out: str) -> list[str]:
+    """PBS: train the fixed-dict q_m head on R=64 and export the ~1 MB torch-free package bundle
+    to src/dgdp/models/dgdp_fixed_dict.npz (fetched back and committed into the package)."""
+    body = (
+        "export OMP_NUM_THREADS=8 MKL_NUM_THREADS=8 OPENBLAS_NUM_THREADS=8\n"
+        "python scripts/train_deprojection_model.py "
+        f"--table {out}/density_residual_table.npz --out src/dgdp/models/dgdp_fixed_dict.npz"
+    )
+    return [pbs_single(out, "dgdp_bundle", body, "06:00:00", "160gb", ppn=8),
+            f"qsub {out}/dgdp_bundle.pbs"]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("mode", choices=["probe", "validate", "full", "check", "inspect", "imgtest",
                                      "array-test", "array-full", "qstat", "shards",
-                                     "truth", "merge", "table", "retrain"])
+                                     "truth", "merge", "table", "retrain", "train-bundle"])
     args = ap.parse_args()
     if args.mode == "probe":
         return run_remote(CONFIG, probe())
@@ -271,6 +283,8 @@ def main() -> int:
         return run_remote(CONFIG, table_pbs(OUT_FULL))
     if args.mode == "retrain":    # after table: train the sech^2-mixture conserving deprojection on R=64
         return run_remote(CONFIG, retrain_pbs(OUT_FULL))
+    if args.mode == "train-bundle":  # after table: export the torch-free package model bundle
+        return run_remote(CONFIG, train_bundle_pbs(OUT_FULL))
     if args.mode == "qstat":
         return run_remote(CONFIG, [
             "qstat -u zli 2>&1 | tail -25",
