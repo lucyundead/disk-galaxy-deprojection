@@ -2,3 +2,7 @@ outputs/
 __pycache__/
 *.py[cod]
 *Zone.Identifier
+dist/
+build/
+*.egg-info
+src/*.egg-info

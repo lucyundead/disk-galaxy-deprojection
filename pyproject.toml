@@ -6,12 +6,31 @@ build-backend = "setuptools.build_meta"
 name = "disk-galaxy-deprojection"
 version = "0.2.0"
 description = "Learned mass-conserving deprojection of galaxy images -> 3D stellar density, rotation curve, potential."
+readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "lucyundead", email = "lucyundead@126.com" }]
+keywords = ["astronomy", "galaxies", "deprojection", "rotation-curve", "TNG50", "photometry"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Astronomy",
+]
 dependencies = [
   "numpy>=1.26",
   "astropy>=6.0",
   "matplotlib>=3.8",
 ]
+
+[project.urls]
+Homepage = "https://github.com/lucyundead/disk-galaxy-deprojection"
+Repository = "https://github.com/lucyundead/disk-galaxy-deprojection"
+Issues = "https://github.com/lucyundead/disk-galaxy-deprojection/issues"
 
 [project.optional-dependencies]
 # retraining the bundled model (needs the TNG table); end users do NOT need these
