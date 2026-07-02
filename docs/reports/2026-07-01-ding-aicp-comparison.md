@@ -64,8 +64,10 @@ different galaxy and viewing angle, and per-cell (ours) vs radial-profile (likel
    population prior (OOD robustness). For in-distribution barred galaxies the prior is a clear win.
 2. **Uncertainty is our real gap.** Their AICp explores the consistent-density family; we emit one
    number. The dgdp-native analogs: the MDN's predictive variance (currently collapsed to the mean
-   head — needs a retrain to expose) or, cheaply, the **projection spread** (idea-2 side-finding:
-   our q_m prediction varies with viewing angle) as an empirical uncertainty proxy. Deferred.
+   head — needs a retrain to expose) or, cheaply, the **projection spread** as an empirical proxy.
+   **Update (same day):** the proxy was tested and rejected — the prediction is ~viewing-angle-
+   invariant and the error is per-galaxy bias; a constant ±19 % (68 %) band is the honest
+   retrain-free answer. See `2026-07-01-projection-uncertainty.md`.
 3. **Shared downstream.** Our density cube + optional AGAMA CylSpline potential can feed the same
    Schwarzschild → pattern-speed pipeline (Tikhonenko et al.) they use — a natural benchmark /
    contact point with the MPE group (who also overlap with the NGC 4371 MGE work).

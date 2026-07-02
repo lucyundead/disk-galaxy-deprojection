@@ -48,9 +48,12 @@ Skip the mass-dependent-baseline retrain. Reasoning: (a) weak relation (R²=0.32
 already unbiased in mass, (c) both real test galaxies (NGC 4321 6×10¹⁰, NGC 4371 3.5×10¹⁰) sit
 *inside* the TNG mass range 3×10⁹–1×10¹², so even the OOD-prior rationale does not apply.
 
-Idea 2 is closed. If vertical-structure accuracy is revisited later, the diagnostic points at
+Idea 2 is closed. ~~If vertical-structure accuracy is revisited later, the diagnostic points at
 **projection robustness** (thickness error varies by viewing angle, not mass) as the larger lever,
-not a mass baseline.
+not a mass baseline.~~ **Correction (same day):** the follow-up
+`2026-07-01-projection-uncertainty.md` shows the error is 99 % **per-galaxy bias**, ~invariant to
+viewing angle — the "streaks" were galaxy offsets, not projection scatter. The lever is a
+galaxy-level uncertainty head, not projection robustness.
 
 ## Files
 
