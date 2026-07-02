@@ -66,9 +66,10 @@ listed under RESUME.
 3. **Faint-cell accuracy** (idea-3 side-finding): unweighted bar RMS log ρ 0.43 vs mass-weighted
    0.215 — the vertical tails / low-density cells are the weak spot (same family as the R>12 kpc
    edge artifact and the x=0 render seam; enforce z-symmetric q_m at source as the tidy-up).
-4. **Housekeeping:** pending task chip "Fix backslash in cluster PYTHONPATH export"
-   (`src/dgdp/cluster.py:81`, `$PWD\src` → `$PWD/src`; works today only because dgdp is
-   pip-installed in the conda env). Push the branch when ready.
+4. **Housekeeping:** push the branch when ready. (A "fix backslash in cluster PYTHONPATH" task
+   chip was a false positive — `src/dgdp/cluster.py:81` has always been `$PWD/src`, verified
+   byte-level vs HEAD and full history; the flag came from a display artifact reading the file
+   through the Windows UNC layer. Nothing to do.)
 
 ## Gotchas
 - **Cluster login node has a per-process memory cap** (~tens of GB; `np.load` of the full 31 GB
