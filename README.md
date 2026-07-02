@@ -28,10 +28,13 @@ Python:
 ```python
 from dgdp import deproject
 r = deproject("galaxy.fits", distance_mpc=15.2, inclination_deg=30, pa_onsky_deg=153,
-              ml=1.0, stellar_mass=6e10)
+              ml=1.0, stellar_mass=6e10, n_samples=48)
 r.density_3d              # (nR, nphi, nz) cylindrical stellar-mass cube [Msun]
 r.v_circ([1, 2, 5, 10])   # rotation curve at those radii [km/s]
 r.rms_z([1, 5, 10])       # vertical thickness RMS|z|(R) [kpc]
+r.rms_z_samples([1, 5])   # posterior draws (n_samples, nR) -> uncertainty bands
+r.v_circ_samples([1, 5])  # same for the rotation curve
+r.reproj["history"]       # reprojection-consistency residual (see below)
 r.edge_on, r.face_on      # 2-D renderings
 r.save("out/")            # density.npz + rotation_curve.csv + deprojection.png
 ```
@@ -65,6 +68,18 @@ The in-plane surface density is anchored geometrically from the image; a learned
 sech² vertical profile q_m(z;R) — trained on 185 TNG50 barred galaxies × 198 projections — supplies
 the thickness, mass-conserving by construction. See
 `docs/reports/2026-06-30-mixture-qm-fixed-dictionary.md`.
+
+Two consistency layers on top:
+
+- **Reprojection loop** (`reproject_iters`, default 2): the thick reconstruction is projected
+  back to the sky and the Σ anchors are corrected until the model actually reproduces the
+  observed image (the plain geometric stretch assumes zero thickness). Early-stops with revert,
+  so it never returns a worse-reprojecting model; `r.reproj["history"]` holds the obs-weighted
+  mean |log(obs/model)| per pass and `r.reproj["ratio"]` the final residual map.
+- **Posterior sampling** (`n_samples`): the bundled model is a mixture density network; sampling
+  its head propagates the vertical-profile posterior to RMS|z|(R) and v_c(R) bands
+  (`rms_z_samples` / `v_circ_samples`). Band coverage is calibrated on the held-out TNG50 val
+  split (`src/dgdp/models/dgdp_fixed_dict.calibration.json`).
 
 Milestone 1 predicts posterior residuals for physical summaries:
 

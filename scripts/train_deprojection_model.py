@@ -86,16 +86,32 @@ def main() -> None:
 
     xt_val = torch.tensor(x_all[val])
     yt_val = torch.tensor(y_all[val])
-    mdn1 = train_mdn(x_all, y_all, train, val, seed=args.seed, epochs=args.epochs)
-    with torch.no_grad():
-        nll1 = float(mdn1.negative_log_likelihood(xt_val, yt_val))
-    mdn = mdn1
+
+    def calibrated(n_components):
+        """Train, then temperature-scale the log-sigma head on the val split (the raw MDN
+        overfits its scales on train residuals -> overconfident bands; one scalar widening
+        fitted by val NLL fixes the calibration without touching the means)."""
+        mdn_k = train_mdn(x_all, y_all, train, val, seed=args.seed, epochs=args.epochs,
+                          n_components=n_components)
+        with torch.no_grad():
+            raw = float(mdn_k.negative_log_likelihood(xt_val, yt_val))
+        lt = fit_temperature(mdn_k, xt_val, yt_val)
+        mdn_k.log_scales.bias.data += lt
+        with torch.no_grad():
+            cal = float(mdn_k.negative_log_likelihood(xt_val, yt_val))
+        print(f"K={n_components}: val NLL raw {raw:.3f} -> temperature log_tau={lt:.2f} "
+              f"-> calibrated {cal:.3f}")
+        return mdn_k, raw, cal, lt
+
+    mdn1, nll1, nll1c, lt1 = calibrated(1)
+    mdn, nllk, nllkc, ltk = mdn1, nll1, nll1c, lt1
     if args.n_components > 1:
-        mdn = train_mdn(x_all, y_all, train, val, seed=args.seed, epochs=args.epochs,
-                        n_components=args.n_components)
-    with torch.no_grad():
-        nllk = float(mdn.negative_log_likelihood(xt_val, yt_val))
-    print(f"val NLL: K=1 {nll1:.3f}  K={args.n_components} {nllk:.3f}")
+        mdnk, nllk, nllkc, ltk = calibrated(args.n_components)
+        if nllkc < nll1c:
+            mdn = mdnk
+        else:
+            print(f"K={args.n_components} not better than K=1 after calibration -> shipping K=1")
+    print(f"chosen K={int(mdn.n_components)}")
 
     mlp = dict(W1=mdn.net[0].weight.detach().numpy(), b1=mdn.net[0].bias.detach().numpy(),
                W2=mdn.net[2].weight.detach().numpy(), b2=mdn.net[2].bias.detach().numpy(),
@@ -119,11 +135,36 @@ def main() -> None:
     calib = calibrate_rms_z(mdn, x_all[val], truth[val], vec, mean, y_mean, y_std,
                             rk_by_m[0], heights, r_grid, z_grid,
                             n_samples=args.calib_samples, seed=args.seed)
-    calib["val_nll_k1"], calib[f"val_nll_k{args.n_components}"] = nll1, nllk
+    calib["val_nll_k1_raw"], calib["val_nll_k1_calibrated"] = nll1, nll1c
+    calib[f"val_nll_k{args.n_components}_raw"] = nllk
+    calib[f"val_nll_k{args.n_components}_calibrated"] = nllkc
+    calib["chosen_k"], calib["log_tau"] = int(mdn.n_components), float(ltk if mdn is not mdn1 else lt1)
     calib_path = args.out.with_suffix("").with_suffix(".calibration.json")
     calib_path.write_text(json.dumps(calib, indent=2), encoding="utf-8")
     print(f"wrote {calib_path}: cov68={calib['coverage68_aggregate']:.3f} "
           f"cov90={calib['coverage90_aggregate']:.3f}")
+
+
+def fit_temperature(mdn, xt_val, yt_val):
+    """log_tau minimizing the val NLL when log_scales are shifted by it (grid search; the
+    clamp matches the inference path so the exported bias stays consistent)."""
+    import torch
+
+    with torch.no_grad():
+        h = mdn.net(xt_val)
+        logpi = torch.log_softmax(mdn.logits(h), dim=-1)
+        means = mdn.means(h).reshape(len(h), mdn.n_components, -1)
+        log_scales = mdn.log_scales(h).reshape(len(h), mdn.n_components, -1)  # UNclamped
+        resid2 = (yt_val[:, None, :] - means) ** 2
+        const = 0.5 * means.shape[-1] * float(np.log(2.0 * np.pi))
+
+        def nll(lt):
+            ls = torch.clamp(log_scales + lt, -6.0, 3.0)
+            lp = (-0.5 * resid2 * torch.exp(-2.0 * ls) - ls).sum(-1) - const
+            return float(-torch.logsumexp(logpi + lp, dim=-1).mean())
+
+        grid = np.linspace(-1.0, 3.0, 81)
+        return float(grid[int(np.argmin([nll(float(t)) for t in grid]))])
 
 
 def calibrate_rms_z(mdn, x_val, truth_val, vec, mean, y_mean, y_std, rk0, heights,
