@@ -23,6 +23,7 @@ import numpy as np
 from matplotlib.colors import LogNorm
 
 from dgdp import rotation
+from dgdp import vertical_mixture as vm
 from dgdp.deproject import _BUNDLED, deproject
 from dgdp.density3d import cylindrical_bin_volumes, make_cylindrical_grid_spec
 from dgdp.image import geometric_baseline, load_image
@@ -57,9 +58,14 @@ def rms_z_profile(mass_grid, z_centers):
     return np.sqrt((m_rz * z_centers[None, :] ** 2).sum(axis=1) / tot)
 
 
+def hz_profile(mass_grid, z_centers):
+    """Sech^2 scale height h_z(R): rho ∝ sech^2(z/2h) fit per radius (obs-comparable)."""
+    return vm.sech2_height_fit(mass_grid.sum(axis=1), z_centers)
+
+
 def summary_figure(name, light, cx, cy, pix_kpc, baseline_mass, learned_mass, vol,
-                   r_grid, z_grid, radii, vc, rms_base, rms_learn, path):
-    """observed | face-on (learned) | edge-on (learned) | RMS|z| | rotation curve."""
+                   r_grid, z_grid, radii, vc, hz_base, hz_learn, path):
+    """observed | face-on (learned) | edge-on (learned) | h_z(R) | rotation curve."""
     spec_e = _SPEC
     r_e, p_e, z_e = spec_e.r_edges_kpc, spec_e.phi_edges_rad, spec_e.z_edges_kpc
     theta_b = bar_azimuth(baseline_mass, r_grid)              # grid azimuth of the bar
@@ -94,9 +100,10 @@ def summary_figure(name, light, cx, cy, pix_kpc, baseline_mass, learned_mass, vo
                  norm=LogNorm(vmin=emax * 3e-3, vmax=emax))
     ax[2].set(title="deprojected edge-on\n(bar side-on)", xlabel="x [kpc]", ylabel="z [kpc]")
 
-    ax[3].plot(r_grid, rms_base, color="#4c72b0", lw=2, label="baseline sech² h=0.3")
-    ax[3].plot(r_grid, rms_learn, color="#c44e52", lw=2, label="learned q_m")
-    ax[3].set(xlim=(0, 18), title="vertical thickness", xlabel="R [kpc]", ylabel="RMS |z| [kpc]")
+    ax[3].plot(r_grid, hz_base, color="#4c72b0", lw=2, label="baseline sech² h=0.3")
+    ax[3].plot(r_grid, hz_learn, color="#c44e52", lw=2, label="learned q_m")
+    ax[3].set(xlim=(0, 18), title="sech² scale height", xlabel="R [kpc]",
+              ylabel="h_z [kpc]  (ρ ∝ sech²(z/h_z))")
     ax[3].legend(fontsize=8)
 
     ax[4].plot(radii, vc["baseline"], color="#4c72b0", lw=2, label="baseline")
@@ -141,11 +148,13 @@ def main():
                             ("uniform", uniform_mass))}
         rms_base = rms_z_profile(baseline_mass, z_grid)
         rms_learn = rms_z_profile(learned_mass, z_grid)
+        hz_base = hz_profile(baseline_mass, z_grid)
+        hz_learn = hz_profile(learned_mass, z_grid)
         inner = r_grid < 12.0
         w_in = baseline_mass.sum(axis=(1, 2))[inner]
 
-        def eff(rms):  # mass-weighted RMS|z| over the reliable inner disk (R<12 kpc)
-            return float((rms[inner] * w_in).sum() / w_in.sum())
+        def eff(prof):  # mass-weighted profile mean over the reliable inner disk (R<12 kpc)
+            return float((prof[inner] * w_in).sum() / w_in.sum())
 
         # mass conservation is the core invariant of the pipeline -> assert it
         assert abs(learned_mass.sum() / m_star - 1) < 1e-3, (name, learned_mass.sum(), m_star)
@@ -159,6 +168,8 @@ def main():
                  scale_height=SCALE_HEIGHT_KPC, stellar_mass=float(m_star))
         (OUT / f"{slug}_learned_vs_baseline_metrics.json").write_text(json.dumps({
             "galaxy": name, "n_r_out": int(g["n_r"]),
+            "hz_baseline_kpc": eff(hz_base), "hz_learned_kpc": eff(hz_learn),
+            "hz_ratio": eff(hz_learn) / eff(hz_base),
             "rmsz_baseline_kpc": eff(rms_base), "rmsz_learned_kpc": eff(rms_learn),
             "rmsz_ratio": eff(rms_learn) / eff(rms_base),
             "scale_height_baseline_kpc": SCALE_HEIGHT_KPC,
@@ -168,14 +179,14 @@ def main():
         }, indent=2), encoding="utf-8")
 
         summary_figure(name, gi.light, gi.cx, gi.cy, gi.pix_kpc, baseline_mass, learned_mass, vol,
-                       r_grid, z_grid, V_RADII, vc, rms_base, rms_learn,
+                       r_grid, z_grid, V_RADII, vc, hz_base, hz_learn,
                        OUT / f"{slug}_r64_summary.png")
 
         print(f"{name}: M* {m_star:.2e} Msun  v_c peak base {vc['baseline'].max():.1f} / "
-              f"learned {vc['learned'].max():.1f} km/s  RMS|z|(R<12) base {eff(rms_base):.2f} -> "
-              f"learned {eff(rms_learn):.2f} kpc ({eff(rms_learn) / eff(rms_base):.1f}x)")
-        print("   RMS|z| flare learned: " + "  ".join(
-            f"R={rq}:{np.interp(rq, r_grid, rms_learn):.2f}" for rq in (0.5, 1, 2, 5, 8)))
+              f"learned {vc['learned'].max():.1f} km/s  h_z(R<12) base {eff(hz_base):.2f} -> "
+              f"learned {eff(hz_learn):.2f} kpc ({eff(hz_learn) / eff(hz_base):.1f}x)")
+        print("   h_z flare learned: " + "  ".join(
+            f"R={rq}:{np.interp(rq, r_grid, hz_learn):.2f}" for rq in (0.5, 1, 2, 5, 8)))
         print(f"   wrote {slug}_arrays.npz, {slug}_learned_vs_baseline_metrics.json, {slug}_r64_summary.png")
 
 

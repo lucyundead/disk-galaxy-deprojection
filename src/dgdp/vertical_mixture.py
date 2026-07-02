@@ -38,6 +38,28 @@ def galaxy_scale(rmsz_R, weights=None):
     return float((rmsz_R * w).sum() / max(w.sum(), 1e-30) / RMS_PER_H)
 
 
+def sech2_height_fit(profiles, z_grid, h_min=0.1, h_max=8.0, n_h=256):
+    """Best-fit sech^2 scale height h_z [kpc] per row of `profiles` (rows, nz).
+
+    Pure shape fit: profile and model are both unit-normalised, then h_z minimises the L2
+    distance on the z grid (vectorised grid search over geomspace(h_min, h_max, n_h);
+    numpy-only, ~0.9% quantisation). Convention: rho(z) ∝ sech^2(z / h_z) -- the same h_z
+    the geometric baseline, the Comeron+2018 comparison scripts, and van-der-Kruit-style
+    edge-on decompositions use (asymptotic tail e^{-2|z|/h_z}; exponential scale height
+    = h_z/2; a single sech^2 has RMS|z| = 0.907 h_z). Unlike the RMS moment (tail-weighted,
+    so thin+thick blends read thick), the fit reports what observational sech^2 fits report.
+    Rows with no mass return 0.
+    """
+    p = np.asarray(profiles, dtype=float)
+    tot = p.sum(axis=1)
+    p = p / np.maximum(tot, 1e-300)[:, None]
+    hs = np.geomspace(h_min, h_max, int(n_h))
+    q = 1.0 / np.cosh(np.asarray(z_grid, dtype=float)[None, :] / hs[:, None]) ** 2
+    q /= q.sum(axis=1, keepdims=True)
+    err = ((p[:, None, :] - q[None, :, :]) ** 2).sum(axis=2)     # (rows, n_h)
+    return np.where(tot > 0, hs[err.argmin(axis=1)], 0.0)
+
+
 def fit_weights(profile, zabs, s, ratios=DEFAULT_RATIOS, signed=False, ridge=1e-6):
     """Best (non-negative, or signed) weights of `profile` over the scaled kernel basis.
 

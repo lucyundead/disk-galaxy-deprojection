@@ -48,15 +48,16 @@ def main():
     for row, (name, cfg) in enumerate(GALAXIES.items()):
         img = cfg.pop("image")
         res = deproject(img, ml=1.0, n_samples=N_SAMPLES, seed=20260702, **cfg)
-        band(axes[row, 0], R_RMS, res.rms_z_samples(R_RMS), res.rms_z(R_RMS), "#c44e52",
-             "RMS |z| [kpc]", f"{name}: vertical thickness (i={cfg['inclination_deg']:.0f}°)")
-        axes[row, 0].axhline(0.273, color="#4c72b0", lw=1, ls=":", label="_")
+        band(axes[row, 0], R_RMS, res.scale_height_samples(R_RMS), res.scale_height(R_RMS),
+             "#c44e52", "h_z [kpc]  (ρ ∝ sech²(z/h_z))",
+             f"{name}: sech² scale height (i={cfg['inclination_deg']:.0f}°)")
+        axes[row, 0].axhline(0.3, color="#4c72b0", lw=1, ls=":", label="_")
         band(axes[row, 1], R_VC, res.v_circ_samples(R_VC), res.v_circ(R_VC), "#55a868",
              "v_c [km/s]", f"{name}: rotation curve")
         axes[row, 1].set_ylim(0, None)
         print(f"{name}: reproj residual {res.reproj['history'][0]:.3f} -> "
-              f"{min(res.reproj['history']):.3f}  rms|z|(2) "
-              f"{np.percentile(res.rms_z_samples([2.0]), [16, 84]).round(2)}")
+              f"{min(res.reproj['history']):.3f}  h_z(2) "
+              f"{np.percentile(res.scale_height_samples([2.0]), [16, 84]).round(2)}")
     fig.suptitle(f"Posterior bands ({N_SAMPLES} MDN draws; Sigma anchors fixed to the "
                  "mean prediction's reprojection-corrected values)", fontsize=11)
     out = Path("outputs/real_images/ngc_uncertainty_bands.png")

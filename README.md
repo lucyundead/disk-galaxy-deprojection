@@ -31,8 +31,9 @@ r = deproject("galaxy.fits", distance_mpc=15.2, inclination_deg=30, pa_onsky_deg
               ml=1.0, stellar_mass=6e10, n_samples=48)
 r.density_3d              # (nR, nphi, nz) cylindrical stellar-mass cube [Msun]
 r.v_circ([1, 2, 5, 10])   # rotation curve at those radii [km/s]
-r.rms_z([1, 5, 10])       # vertical thickness RMS|z|(R) [kpc]
-r.rms_z_samples([1, 5])   # posterior draws (n_samples, nR) -> uncertainty bands
+r.scale_height([1, 5, 10])       # sech^2 scale height h_z(R) [kpc] (rho ∝ sech²(z/h_z))
+r.scale_height_samples([1, 5])   # posterior draws (n_samples, nR) -> uncertainty bands
+r.rms_z([1, 5, 10])       # RMS|z|(R) moment [kpc] (tail-weighted; h_z is the obs-comparable one)
 r.v_circ_samples([1, 5])  # same for the rotation curve
 r.reproj["history"]       # reprojection-consistency residual (see below)
 r.edge_on, r.face_on      # 2-D renderings

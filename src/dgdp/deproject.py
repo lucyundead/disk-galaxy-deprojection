@@ -96,6 +96,26 @@ class DeprojectionResult:
         rms = np.sqrt((m_rz * self.grid["z"][None, :] ** 2).sum(axis=1) / tot)
         return np.interp(np.asarray(radii_kpc, float), self.grid["r"], rms)
 
+    def scale_height(self, radii_kpc):
+        """Sech^2 scale height h_z(R) [kpc]: rho(z) ∝ sech^2(z / h_z) fit to each radius'
+        phi-summed vertical profile (exponential scale height = h_z/2). Same convention as
+        the geometric baseline and Comeron+2018-style edge-on decompositions -- directly
+        comparable with observations, unlike the tail-weighted RMS|z| moment."""
+        from dgdp import vertical_mixture as vm
+        m_rz = (self.density_3d * self._vol).sum(axis=1)
+        h = vm.sech2_height_fit(m_rz, self.grid["z"])
+        return np.interp(np.asarray(radii_kpc, float), self.grid["r"], h)
+
+    def scale_height_samples(self, radii_kpc):
+        """Posterior draws of h_z(R), shape (n_samples, len(radii))."""
+        from dgdp import vertical_mixture as vm
+        mass = self._sample_masses()
+        m_rz = mass.sum(axis=2)                              # (S,R,z)
+        h = vm.sech2_height_fit(m_rz.reshape(-1, m_rz.shape[-1]),
+                                self.grid["z"]).reshape(m_rz.shape[:2])
+        radii = np.asarray(radii_kpc, float)
+        return np.stack([np.interp(radii, self.grid["r"], row) for row in h])
+
     @property
     def face_on(self):
         return (self.density_3d * self._vol).sum(axis=2)     # (R,phi) column mass
