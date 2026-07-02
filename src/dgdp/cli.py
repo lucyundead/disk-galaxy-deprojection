@@ -24,6 +24,8 @@ def main(argv=None) -> int:
     ap.add_argument("--zeropoint", type=float, default=None, help="photometric mag zero-point")
     ap.add_argument("--band-solar-mag", type=float, default=None, help="band solar absolute mag")
     ap.add_argument("--bar-angle-deg", type=float, default=0.0)
+    ap.add_argument("--reproject-iters", type=int, default=2,
+                    help="reprojection-consistency passes correcting the Sigma anchors (0=off)")
     ap.add_argument("--no-figures", action="store_true")
     ap.add_argument("--potential", action="store_true", help="also write the AGAMA potential (needs agama)")
     ap.add_argument("-o", "--output-dir", default="dgdp_out")
@@ -39,7 +41,8 @@ def main(argv=None) -> int:
         pa_pix_deg=a.pa_pix_deg, pa_onsky_deg=a.pa_onsky_deg,
         center=tuple(a.center) if a.center else None, pix_arcsec=a.pix_arcsec, mask=a.mask,
         ml=a.ml, stellar_mass=a.stellar_mass, luminosity=a.luminosity, zeropoint=a.zeropoint,
-        band_solar_mag=a.band_solar_mag, bar_angle_deg=a.bar_angle_deg)
+        band_solar_mag=a.band_solar_mag, bar_angle_deg=a.bar_angle_deg,
+        reproject_iters=a.reproject_iters)
     result.save(a.output_dir)
     if not a.no_figures:
         from dgdp.figures import save_summary_figure

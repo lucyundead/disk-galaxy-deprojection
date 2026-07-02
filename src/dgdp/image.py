@@ -131,4 +131,6 @@ def geometric_baseline(gi: GalaxyImage, spec, *, scale_height_kpc, stellar_mass)
     edges = np.linspace(-fov, fov, 193)
     img_tng, _, _ = np.histogram2d(y_minor, x_major, bins=(edges, edges), weights=mass)
     return {"baseline_density": baseline_density, "image_tng": img_tng.astype(np.float32),
-            "M_star": float(mass3d.sum())}
+            "M_star": float(mass3d.sum()),
+            "sigma_mass": sigma_mass * (stellar_mass / sigma_mass.sum()),
+            "image_edges_kpc": edges}

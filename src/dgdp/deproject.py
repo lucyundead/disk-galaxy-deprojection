@@ -11,9 +11,10 @@ import numpy as np
 from dgdp import rotation
 from dgdp.density3d import cylindrical_bin_volumes, make_cylindrical_grid_spec
 from dgdp.features import make_features
-from dgdp.harmonics import EVEN_M, harmonics, reconstruct_density
+from dgdp.harmonics import reconstruct_density
 from dgdp.image import geometric_baseline, load_image
 from dgdp.model import DeprojectionModel
+from dgdp.reproject import anchors_from_sigma, refine_sigma
 
 _BUNDLED = files("dgdp.models").joinpath("dgdp_fixed_dict.npz")
 
@@ -42,6 +43,10 @@ class DeprojectionResult:
     total_mass: float
     relative: bool
     _vol: np.ndarray
+    reproj: dict | None = None                              # reprojection-loop diagnostics:
+    #   history: obs-weighted mean |log(obs/model)| per measured state (history[0] = before any
+    #   correction; the result uses the best = min); ratio: sky-plane obs/model map at the best
+    #   state (axis 0 = minor axis) on edges_kpc bins -- a per-galaxy self-consistency check.
 
     def v_circ(self, radii_kpc):
         return rotation.v_circ(self.density_3d * self._vol, self.grid["r"], self.grid["phi"],
@@ -82,10 +87,16 @@ class DeprojectionResult:
 def deproject(image, *, distance_mpc, inclination_deg, pa_pix_deg=None, pa_onsky_deg=None,
               center=None, pix_arcsec=None, mask=None, ml=1.0, stellar_mass=None,
               luminosity=None, zeropoint=None, band_solar_mag=None, bar_angle_deg=0.0,
-              scale_height_kpc=0.3, model=None) -> DeprojectionResult:
+              scale_height_kpc=0.3, model=None, reproject_iters=2) -> DeprojectionResult:
     """Deproject a galaxy image into a 3D stellar-mass cube + rotation curve.
 
     See the package README / spec for the M/L scaling paths. Returns a DeprojectionResult.
+
+    reproject_iters: max correction passes of the reprojection-consistency loop
+    (dgdp.reproject) adjusting the in-plane Sigma anchors so the THICK reconstruction
+    actually reprojects to the observed image (the plain geometric stretch assumes zero
+    thickness). Early-stops with revert, so the result never reprojects worse than the
+    single-shot anchors. 0 = legacy single-shot. Diagnostics land in result.reproj.
     """
     m = model if isinstance(model, DeprojectionModel) else DeprojectionModel.load(str(model or _BUNDLED))
     g = m.grid
@@ -105,8 +116,6 @@ def deproject(image, *, distance_mpc, inclination_deg, pa_pix_deg=None, pa_onsky
                                          band_solar_mag=band_solar_mag, distance_mpc=distance_mpc)
     base = geometric_baseline(gi, spec, scale_height_kpc=scale_height_kpc,
                               stellar_mass=max(total_mass, 1.0))
-    _, sigma_img = harmonics(base["baseline_density"][None], dz)
-    anchor = {mm: sigma_img[mm] for mm in EVEN_M}
 
     # Scale the TNG-format image to the training median total (sets the 2 absolute mass features
     # in-distribution; every other feature is scale-invariant), then predict the mixture weights.
@@ -118,10 +127,22 @@ def deproject(image, *, distance_mpc, inclination_deg, pa_pix_deg=None, pa_onsky
                          central_pixel_scale_kpc=m.central_pixel_scale_kpc)
     vec = m.predict_weights(feat)
 
-    rho = reconstruct_density(vec, anchor, m.rk_by_m, m.k_by_m, m.heights, r_grid, z_grid, phi)[0]
+    def _reconstruct(anchor):
+        return reconstruct_density(vec, anchor, m.rk_by_m, m.k_by_m, m.heights,
+                                   r_grid, z_grid, phi)[0]
+
+    base_area = vol[:, 0, 0] / dz
+    sig, reproj = base["sigma_mass"], None
+    if reproject_iters:
+        sig, hist, ratio = refine_sigma(sig, base["image_tng"], _reconstruct, base_area,
+                                        r_grid, phi, z_grid, inclination_deg,
+                                        base["image_edges_kpc"], iters=reproject_iters)
+        reproj = {"history": hist, "ratio": ratio, "edges_kpc": base["image_edges_kpc"]}
+
+    rho = _reconstruct(anchors_from_sigma(sig, base_area))
     mass = rho * vol
     if not relative:
         mass *= total_mass / max(mass.sum(), 1e-30)
     density = mass / vol
     return DeprojectionResult(density, {"r": r_grid, "phi": phi, "z": z_grid},
-                              float(mass.sum()), relative, vol)
+                              float(mass.sum()), relative, vol, reproj)
