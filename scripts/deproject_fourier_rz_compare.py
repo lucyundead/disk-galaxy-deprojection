@@ -119,12 +119,13 @@ def fit_pca(target, train_mask, n_comp):
     return coeff.astype(np.float32), components.astype(np.float32), mean.astype(np.float32)
 
 
-def train_mdn(x_all, y_all, train, val, *, seed, epochs, patience=60):
+def train_mdn(x_all, y_all, train, val, *, seed, epochs, patience=60, n_components=1):
     torch.manual_seed(seed)
     rng = np.random.default_rng(seed)
     xt, yt = torch.tensor(x_all), torch.tensor(y_all)
     tr, va = np.flatnonzero(train), np.flatnonzero(val)
-    mdn = SummaryResidualMDN(input_dim=x_all.shape[1], output_dim=y_all.shape[1], hidden_dim=128, n_components=1)
+    mdn = SummaryResidualMDN(input_dim=x_all.shape[1], output_dim=y_all.shape[1], hidden_dim=128,
+                             n_components=n_components)
     opt = torch.optim.Adam(mdn.parameters(), lr=1e-3, weight_decay=1e-4)
     best, best_state, wait = 1e9, None, 0
     for _ in range(epochs):

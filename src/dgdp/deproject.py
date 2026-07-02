@@ -47,6 +47,43 @@ class DeprojectionResult:
     #   history: obs-weighted mean |log(obs/model)| per measured state (history[0] = before any
     #   correction; the result uses the best = min); ratio: sky-plane obs/model map at the best
     #   state (axis 0 = minor axis) on edges_kpc bins -- a per-galaxy self-consistency check.
+    _samples: dict | None = None                            # posterior-sampling context
+
+    def _sample_masses(self):
+        """(S,nR,nphi,nz) mass grids reconstructed from the posterior weight draws (cached).
+
+        Samples share the (loop-corrected) Sigma anchors of the mean prediction: the bands
+        quantify the vertical-profile posterior at fixed in-plane surface density.
+        """
+        s = self._samples
+        if s is None:
+            raise ValueError("no posterior samples -- call deproject(..., n_samples=N)")
+        if "mass" not in s:
+            from dgdp.harmonics import reconstruct_density as _rec
+            rho = _rec(s["weights"], s["anchor"], s["rk_by_m"], s["k_by_m"], s["heights"],
+                       self.grid["r"], self.grid["z"], self.grid["phi"])
+            mass = rho * self._vol[None]
+            if not self.relative:
+                tot = np.maximum(mass.sum(axis=(1, 2, 3), keepdims=True), 1e-30)
+                mass *= self.total_mass / tot
+            s["mass"] = mass
+        return s["mass"]
+
+    def rms_z_samples(self, radii_kpc):
+        """Posterior draws of RMS|z|(R), shape (n_samples, len(radii))."""
+        mass = self._sample_masses()
+        m_rz = mass.sum(axis=2)
+        tot = np.maximum(m_rz.sum(axis=2), 1e-30)
+        rms = np.sqrt((m_rz * self.grid["z"][None, None, :] ** 2).sum(axis=2) / tot)
+        radii = np.asarray(radii_kpc, float)
+        return np.stack([np.interp(radii, self.grid["r"], row) for row in rms])
+
+    def v_circ_samples(self, radii_kpc):
+        """Posterior draws of v_c(R) [km/s], shape (n_samples, len(radii))."""
+        mass = self._sample_masses()
+        radii = np.asarray(radii_kpc, float)
+        return np.stack([rotation.v_circ(mg, self.grid["r"], self.grid["phi"],
+                                         self.grid["z"], radii) for mg in mass])
 
     def v_circ(self, radii_kpc):
         return rotation.v_circ(self.density_3d * self._vol, self.grid["r"], self.grid["phi"],
@@ -87,7 +124,8 @@ class DeprojectionResult:
 def deproject(image, *, distance_mpc, inclination_deg, pa_pix_deg=None, pa_onsky_deg=None,
               center=None, pix_arcsec=None, mask=None, ml=1.0, stellar_mass=None,
               luminosity=None, zeropoint=None, band_solar_mag=None, bar_angle_deg=0.0,
-              scale_height_kpc=0.3, model=None, reproject_iters=2) -> DeprojectionResult:
+              scale_height_kpc=0.3, model=None, reproject_iters=2, n_samples=0,
+              seed=None) -> DeprojectionResult:
     """Deproject a galaxy image into a 3D stellar-mass cube + rotation curve.
 
     See the package README / spec for the M/L scaling paths. Returns a DeprojectionResult.
@@ -97,6 +135,10 @@ def deproject(image, *, distance_mpc, inclination_deg, pa_pix_deg=None, pa_onsky
     actually reprojects to the observed image (the plain geometric stretch assumes zero
     thickness). Early-stops with revert, so the result never reprojects worse than the
     single-shot anchors. 0 = legacy single-shot. Diagnostics land in result.reproj.
+
+    n_samples: posterior draws of the vertical-profile weights (needs a bundle with the
+    mixture scale heads). The result then supports rms_z_samples / v_circ_samples for
+    uncertainty bands; the density_3d itself stays the mixture-mean prediction.
     """
     m = model if isinstance(model, DeprojectionModel) else DeprojectionModel.load(str(model or _BUNDLED))
     g = m.grid
@@ -139,10 +181,17 @@ def deproject(image, *, distance_mpc, inclination_deg, pa_pix_deg=None, pa_onsky
                                         base["image_edges_kpc"], iters=reproject_iters)
         reproj = {"history": hist, "ratio": ratio, "edges_kpc": base["image_edges_kpc"]}
 
-    rho = _reconstruct(anchors_from_sigma(sig, base_area))
+    anchor = anchors_from_sigma(sig, base_area)
+    rho = _reconstruct(anchor)
     mass = rho * vol
     if not relative:
         mass *= total_mass / max(mass.sum(), 1e-30)
     density = mass / vol
+
+    samples = None
+    if n_samples:
+        ws = m.sample_weights(feat, int(n_samples), np.random.default_rng(seed))[0]
+        samples = {"weights": ws, "anchor": anchor, "rk_by_m": m.rk_by_m,
+                   "k_by_m": m.k_by_m, "heights": m.heights}
     return DeprojectionResult(density, {"r": r_grid, "phi": phi, "z": z_grid},
-                              float(mass.sum()), relative, vol, reproj)
+                              float(mass.sum()), relative, vol, reproj, samples)
