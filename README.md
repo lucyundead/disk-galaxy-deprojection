@@ -69,6 +69,11 @@ sech² vertical profile q_m(z;R) — trained on 185 TNG50 barred galaxies × 198
 the thickness, mass-conserving by construction. See
 `docs/reports/2026-06-30-mixture-qm-fixed-dictionary.md`.
 
+The learned vertical profiles cover m ∈ {0, 2, 4}; the remaining azimuthal content of the
+surface density (spiral arms, odd m) is carried with the local m=0 vertical profile — being
+φ-mean-free it changes no ring mass and no RMS|z|(R), but keeps the arms in the maps and lets
+the reprojection loop drive the image residual to the discretization floor.
+
 Two consistency layers on top:
 
 - **Reprojection loop** (`reproject_iters`, default 2): the thick reconstruction is projected

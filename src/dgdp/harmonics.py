@@ -22,7 +22,7 @@ def r_resample(cmap: np.ndarray, r_src: np.ndarray, r_dst: np.ndarray) -> np.nda
 
 
 def reconstruct_density(vec_rows, anchor, rk_by_m, k_by_m, heights,
-                        r_grid, z_grid, phi_centers) -> np.ndarray:
+                        r_grid, z_grid, phi_centers, sigma_hi=None) -> np.ndarray:
     """Predicted mixture weights -> q_m(z;R) -> anchor Sigma_m(R) -> cell DENSITY (rows,nR,nphi,nz).
 
     q is z-symmetric, >=0 (m=0), int q dz=1 by construction; linear R-interp preserves the unit
@@ -31,6 +31,11 @@ def reconstruct_density(vec_rows, anchor, rk_by_m, k_by_m, heights,
     a_0(R,z) exactly, so scaling each (R,z) ring by a_0/mean(clipped) (a factor in [0,1])
     removes precisely the clipping surplus -- truncated-Fourier ringing (e.g. around the
     point-like central anchors) can no longer rectify into spurious high-|z| mass.
+
+    sigma_hi (rows,nR,nphi) [mass/kpc^2], optional: the m NOT in {0,2,4} content of the surface
+    density (odd m, m>4 -- spiral arms, lopsidedness). It is added with the m=0 vertical profile
+    (arm material gets the local mean disk thickness). Being phi-mean-free per ring, it leaves
+    the a_0 conservation target -- and hence RMS|z|(R) and every ring mass -- exactly unchanged.
     """
     rows = vec_rows.shape[0]
     rho = np.zeros((rows, len(r_grid), len(phi_centers), len(z_grid)))
@@ -52,6 +57,8 @@ def reconstruct_density(vec_rows, anchor, rk_by_m, k_by_m, heights,
         if m == 0:
             a0 = np.clip(a_m.real, 0.0, None)                  # (rows,nR,nz) phi-mean target
             rho += a_m.real[:, :, None, :]
+            if sigma_hi is not None:
+                rho += sigma_hi[:, :, :, None] * q_grid.real[:, :, None, :]
         else:
             cos_m, sin_m = np.cos(m * phi_centers), np.sin(m * phi_centers)
             rho += 2.0 * (a_m.real[:, :, None, :] * cos_m[None, None, :, None]

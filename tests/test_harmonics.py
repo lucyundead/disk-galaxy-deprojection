@@ -66,3 +66,42 @@ def test_reconstruct_density_conserving_clip_under_ringing():
     a0 = thin / (thin.sum() * dz)                             # Sigma_0 = 1 -> a_0(z) = q_0(z)
     np.testing.assert_allclose(rho.mean(axis=2)[0], np.broadcast_to(a0, (len(r_grid), len(z_grid))),
                                rtol=1e-9, atol=1e-12)
+
+
+def test_reconstruct_density_sigma_hi_column_exact_and_mean_free():
+    # arms/odd-m content rides on the m=0 vertical profile; unclipped it must reproduce the
+    # full column density pointwise, and (clipped or not) leave the phi-mean pinned to a_0
+    r_grid = np.linspace(0.5, 20, 10)
+    z_grid = np.linspace(-5, 5, 32)
+    phi = np.linspace(-np.pi, np.pi, 48, endpoint=False)
+    heights = np.geomspace(0.2, 3.5, 7)
+    rk = {0: np.geomspace(0.12, 15, 12), 2: np.geomspace(0.12, 15, 8), 4: np.geomspace(0.12, 15, 6)}
+    K = len(heights)
+    vec = []
+    for m in EVEN_M:
+        w = np.zeros((1, len(rk[m]), K))
+        if m == 0:
+            w[..., 1] = 1.0                                   # thin-ish m=0 profile only
+        vec.append(w.reshape(1, -1))
+        if m != 0:
+            vec.append(np.zeros((1, len(rk[m]) * K)))
+    vec = np.concatenate(vec, axis=1)
+    anchor = {0: np.ones((1, len(r_grid)), complex), 2: np.zeros((1, len(r_grid)), complex),
+              4: np.zeros((1, len(r_grid)), complex)}
+    dz = z_grid[1] - z_grid[0]
+
+    hi_mild = (0.3 * np.cos(3 * phi))[None, None, :] * np.ones((1, len(r_grid), 1))
+    rho = reconstruct_density(vec, anchor, rk, {m: K for m in EVEN_M}, heights,
+                              r_grid, z_grid, phi, sigma_hi=hi_mild)
+    col = rho[0].sum(axis=2) * dz                             # (nR, nphi) column density
+    np.testing.assert_allclose(col, 1.0 + hi_mild[0], rtol=1e-9, atol=1e-12)
+
+    hi_strong = 1.5 * np.cos(7 * phi)[None, :] * np.ones((len(r_grid), 1))  # forces clipping
+    rho2 = reconstruct_density(vec, anchor, rk, {m: K for m in EVEN_M}, heights,
+                               r_grid, z_grid, phi, sigma_hi=hi_strong[None])
+    assert np.all(rho2 >= 0)
+    b = 1.0 / np.cosh(np.abs(z_grid) / (2 * heights[1])) ** 2 / (4 * heights[1])
+    q0 = b / (b.sum() * dz)
+    np.testing.assert_allclose(rho2.mean(axis=2)[0],
+                               np.broadcast_to(q0, (len(r_grid), len(z_grid))),
+                               rtol=1e-9, atol=1e-12)         # phi-mean still exactly a_0

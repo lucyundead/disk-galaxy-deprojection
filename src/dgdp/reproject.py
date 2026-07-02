@@ -80,15 +80,15 @@ def anchors_from_sigma(sigma_mass, base_area):
     return {m: coeff[None, :, m] for m in EVEN_M}
 
 
-def refine_sigma(sigma_mass, obs_img, reconstruct_fn, base_area, r_grid, phi_centers,
+def refine_sigma(sigma_mass, obs_img, reconstruct_fn, r_grid, phi_centers,
                  z_grid, incl_deg, edges, *, iters=2, ratio_clip=3.0, n_los=281):
     """Iteratively correct sigma_mass (R,phi) so the reconstruction reprojects to obs_img.
 
-    reconstruct_fn(anchor_dict) -> rho (nR,nphi,nz); anchors rebuilt from sigma each pass.
+    reconstruct_fn(sigma_mass) -> rho (nR,nphi,nz), rebuilt from the candidate sigma each pass.
     Early-stop with revert: each candidate state is MEASURED (obs-weighted mean |log ratio|);
     a correction that does not improve is discarded and the loop stops, so the returned sigma
-    is never worse-reprojecting than the input (residuals dominated by m>4 structure the
-    m<=4 anchors cannot carry, e.g. strong spiral arms, would otherwise cause overshoot).
+    is never worse-reprojecting than the input (residual structure the reconstruction cannot
+    carry would otherwise cause overshoot).
     Returns (best sigma, history of measured residuals, ratio map at the best state).
     """
     total = sigma_mass.sum()
@@ -100,7 +100,7 @@ def refine_sigma(sigma_mass, obs_img, reconstruct_fn, base_area, r_grid, phi_cen
     y_cell = r_grid[:, None] * np.sin(phi_centers)[None, :] * ci  # midplane projection
 
     def measure(sig):
-        rho = reconstruct_fn(anchors_from_sigma(sig, base_area))
+        rho = reconstruct_fn(sig)
         proj = project_to_sky(rho, r_grid, phi_centers, z_grid, incl_deg, edges, n_los=n_los)
         proj_n = proj / max(proj.sum(), 1e-300)
         valid = (obs_n > 0) & (proj_n > 0)

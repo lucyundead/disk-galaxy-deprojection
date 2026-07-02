@@ -20,8 +20,9 @@ def sigma2d(bar_amp):
     return np.exp(-R / 4.0)[:, None] * (1.0 + bar_amp * np.cos(2 * PHI))[None, :]
 
 
-def rho_from_anchor(anchor):
-    """Analytic 'model': even-m anchors x the fixed vertical pdf Q (clip >= 0)."""
+def rho_from_sigma(sig):
+    """Analytic 'model': even-m anchors of sig x the fixed vertical pdf Q (clip >= 0)."""
+    anchor = anchors_from_sigma(sig, AREA)
     s = anchor[0][0].real[:, None] + 0j
     for m in (2, 4):
         s = s + 2.0 * (anchor[m][0][:, None] * np.exp(1j * m * PHI)[None, :])
@@ -47,11 +48,10 @@ def test_refine_sigma_recovers_bar_from_image():
     # truth has an m=2 bar; the initial sigma is axisymmetric with the wrong scalelength.
     # The loop must pull both the bar and the radial profile out of the observed image.
     sig_true = sigma2d(0.4) * AREA[:, None]
-    obs = project_to_sky(rho_from_anchor(anchors_from_sigma(sig_true, AREA)),
-                         R, PHI, Z, 55.0, EDGES, n_los=161)
+    obs = project_to_sky(rho_from_sigma(sig_true), R, PHI, Z, 55.0, EDGES, n_los=161)
     sig0 = np.exp(-R / 3.0)[:, None] * np.ones_like(PHI)[None, :] * AREA[:, None]
     sig0 *= sig_true.sum() / sig0.sum()
-    sig, hist, ratio = refine_sigma(sig0, obs, rho_from_anchor, AREA, R, PHI, Z, 55.0,
+    sig, hist, ratio = refine_sigma(sig0, obs, rho_from_sigma, R, PHI, Z, 55.0,
                                     EDGES, iters=3, n_los=161)
     # hist[0] = uncorrected residual; the loop must improve it a lot on this in-class mock
     assert min(hist) < 0.5 * hist[0], f"residual not reduced: {hist}"

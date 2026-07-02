@@ -61,7 +61,8 @@ class DeprojectionResult:
         if "mass" not in s:
             from dgdp.harmonics import reconstruct_density as _rec
             rho = _rec(s["weights"], s["anchor"], s["rk_by_m"], s["k_by_m"], s["heights"],
-                       self.grid["r"], self.grid["z"], self.grid["phi"])
+                       self.grid["r"], self.grid["z"], self.grid["phi"],
+                       sigma_hi=s.get("sigma_hi"))
             mass = rho * self._vol[None]
             if not self.relative:
                 tot = np.maximum(mass.sum(axis=(1, 2, 3), keepdims=True), 1e-30)
@@ -169,20 +170,27 @@ def deproject(image, *, distance_mpc, inclination_deg, pa_pix_deg=None, pa_onsky
                          central_pixel_scale_kpc=m.central_pixel_scale_kpc)
     vec = m.predict_weights(feat)
 
-    def _reconstruct(anchor):
-        return reconstruct_density(vec, anchor, m.rk_by_m, m.k_by_m, m.heights,
-                                   r_grid, z_grid, phi)[0]
-
     base_area = vol[:, 0, 0] / dz
+
+    def _sigma_hi(sig):
+        """m NOT in {0,2,4} content of Sigma2D (arms, odd m) -- phi-mean-free per ring."""
+        co = np.fft.rfft(sig / base_area[:, None], axis=1)
+        co[:, [0, 2, 4]] = 0.0
+        return np.fft.irfft(co, n=sig.shape[1], axis=1)
+
+    def _reconstruct(sig):
+        return reconstruct_density(vec, anchors_from_sigma(sig, base_area), m.rk_by_m,
+                                   m.k_by_m, m.heights, r_grid, z_grid, phi,
+                                   sigma_hi=_sigma_hi(sig)[None])[0]
+
     sig, reproj = base["sigma_mass"], None
     if reproject_iters:
-        sig, hist, ratio = refine_sigma(sig, base["image_tng"], _reconstruct, base_area,
+        sig, hist, ratio = refine_sigma(sig, base["image_tng"], _reconstruct,
                                         r_grid, phi, z_grid, inclination_deg,
                                         base["image_edges_kpc"], iters=reproject_iters)
         reproj = {"history": hist, "ratio": ratio, "edges_kpc": base["image_edges_kpc"]}
 
-    anchor = anchors_from_sigma(sig, base_area)
-    rho = _reconstruct(anchor)
+    rho = _reconstruct(sig)
     mass = rho * vol
     if not relative:
         mass *= total_mass / max(mass.sum(), 1e-30)
@@ -191,7 +199,8 @@ def deproject(image, *, distance_mpc, inclination_deg, pa_pix_deg=None, pa_onsky
     samples = None
     if n_samples:
         ws = m.sample_weights(feat, int(n_samples), np.random.default_rng(seed))[0]
-        samples = {"weights": ws, "anchor": anchor, "rk_by_m": m.rk_by_m,
+        samples = {"weights": ws, "anchor": anchors_from_sigma(sig, base_area),
+                   "sigma_hi": _sigma_hi(sig)[None], "rk_by_m": m.rk_by_m,
                    "k_by_m": m.k_by_m, "heights": m.heights}
     return DeprojectionResult(density, {"r": r_grid, "phi": phi, "z": z_grid},
                               float(mass.sum()), relative, vol, reproj, samples)
