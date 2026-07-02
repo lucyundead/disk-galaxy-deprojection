@@ -14,7 +14,7 @@ from dgdp.features import make_features
 from dgdp.harmonics import reconstruct_density
 from dgdp.image import geometric_baseline, load_image
 from dgdp.model import DeprojectionModel
-from dgdp.reproject import anchors_from_sigma, refine_sigma
+from dgdp.reproject import anchors_from_sigma, high_m_sigma, refine_sigma
 
 _BUNDLED = files("dgdp.models").joinpath("dgdp_fixed_dict.npz")
 
@@ -172,16 +172,10 @@ def deproject(image, *, distance_mpc, inclination_deg, pa_pix_deg=None, pa_onsky
 
     base_area = vol[:, 0, 0] / dz
 
-    def _sigma_hi(sig):
-        """m NOT in {0,2,4} content of Sigma2D (arms, odd m) -- phi-mean-free per ring."""
-        co = np.fft.rfft(sig / base_area[:, None], axis=1)
-        co[:, [0, 2, 4]] = 0.0
-        return np.fft.irfft(co, n=sig.shape[1], axis=1)
-
     def _reconstruct(sig):
         return reconstruct_density(vec, anchors_from_sigma(sig, base_area), m.rk_by_m,
                                    m.k_by_m, m.heights, r_grid, z_grid, phi,
-                                   sigma_hi=_sigma_hi(sig)[None])[0]
+                                   sigma_hi=high_m_sigma(sig, base_area, phi)[None])[0]
 
     sig, reproj = base["sigma_mass"], None
     if reproject_iters:
@@ -200,7 +194,7 @@ def deproject(image, *, distance_mpc, inclination_deg, pa_pix_deg=None, pa_onsky
     if n_samples:
         ws = m.sample_weights(feat, int(n_samples), np.random.default_rng(seed))[0]
         samples = {"weights": ws, "anchor": anchors_from_sigma(sig, base_area),
-                   "sigma_hi": _sigma_hi(sig)[None], "rk_by_m": m.rk_by_m,
+                   "sigma_hi": high_m_sigma(sig, base_area, phi)[None], "rk_by_m": m.rk_by_m,
                    "k_by_m": m.k_by_m, "heights": m.heights}
     return DeprojectionResult(density, {"r": r_grid, "phi": phi, "z": z_grid},
                               float(mass.sum()), relative, vol, reproj, samples)

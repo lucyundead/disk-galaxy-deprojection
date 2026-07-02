@@ -1,7 +1,7 @@
 import numpy as np
 
 from dgdp.density3d import cylindrical_bin_volumes, make_cylindrical_grid_spec
-from dgdp.reproject import anchors_from_sigma, project_to_sky, refine_sigma
+from dgdp.reproject import anchors_from_sigma, high_m_sigma, project_to_sky, refine_sigma
 
 SPEC = make_cylindrical_grid_spec(z_max_kpc=5.0, n_z=32)
 R = 0.5 * (SPEC.r_edges_kpc[:-1] + SPEC.r_edges_kpc[1:])
@@ -42,6 +42,25 @@ def test_projector_faceon_matches_column_mass_and_conserves():
     assert abs(img.sum() / total - 1.0) < 0.02
     img55 = project_to_sky(rho, R, PHI, Z, 55.0, EDGES, n_los=201)
     assert abs(img55.sum() / total - 1.0) < 0.02            # conserves when inclined too
+
+
+def test_high_m_sigma_inpaints_zero_deposit_cells():
+    # zero-deposit cells (mask/mosaic edge/threshold) must be aimed at the ring's
+    # covered-cell mean: column = (m<=4 part, reconstruction phi-convention) + hi = fill
+    s2d = (1.0 + 0.4 * np.cos(2 * PHI + 0.3) + 0.5 * np.cos(3 * PHI))[None, :] \
+        * np.ones((len(R), 1))
+    s2d[:, :6] = 0.0                                       # a no-coverage wedge
+    hi = high_m_sigma(s2d * AREA[:, None], AREA, PHI)
+    co = np.fft.rfft(s2d, axis=1) / s2d.shape[1]
+    low = np.broadcast_to(co[:, 0].real[:, None], s2d.shape).copy()
+    for mm in (2, 4):
+        low += 2 * (co[:, mm].real[:, None] * np.cos(mm * PHI)[None, :]
+                    - co[:, mm].imag[:, None] * np.sin(mm * PHI)[None, :])
+    fill = s2d[:, 6:].mean(axis=1)                         # covered-cell ring mean
+    np.testing.assert_allclose((low + hi)[:, :6], np.broadcast_to(fill[:, None], (len(R), 6)),
+                               rtol=1e-9, atol=1e-12)      # hole columns hit the fill value
+    np.testing.assert_allclose((low + hi)[:, 6:], s2d[:, 6:], rtol=1e-9, atol=1e-12)
+    # covered cells stay EXACT (full column preserved, arms untouched)
 
 
 def test_refine_sigma_recovers_bar_from_image():

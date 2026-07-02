@@ -80,6 +80,34 @@ def anchors_from_sigma(sigma_mass, base_area):
     return {m: coeff[None, :, m] for m in EVEN_M}
 
 
+def high_m_sigma(sigma_mass, base_area, phi_centers):
+    """m NOT in {0,2,4} content of Sigma2D [mass/kpc^2] for reconstruct_density(sigma_hi=...).
+
+    The m<=4 part is evaluated EXACTLY as reconstruct_density evaluates the anchors -- with
+    cos/sin at the physical cell centres, not via irfft. (The two differ by a half-cell
+    rotation of each m-component: benign while the anchors were used alone, but subtracting
+    an irfft-convention low from Sigma2D breaks the column identity low + hi = Sigma2D
+    wherever m=2/4 gradients are strong, clipping faint cells to exact zero.)
+
+    Zero-deposit cells (masked stars, mosaic edges, below-threshold sky) carry no azimuthal
+    information, so they are INPAINTED: their column is aimed at the ring's covered-cell mean.
+    (Not at the m<=4 model value: a large coverage wedge imprints a step into the ring's own
+    m=2/4 anchors, which dip negative exactly inside the wedge -- the model inherits the hole.)
+    The conserving per-ring renorm in reconstruct_density keeps every ring mass anchored, so
+    the filled mass is paid for by the covered cells of the same ring; total mass is unchanged.
+    """
+    s2d = sigma_mass / base_area[:, None]
+    co = np.fft.rfft(s2d, axis=1) / s2d.shape[1]
+    low = np.broadcast_to(co[:, 0].real[:, None], s2d.shape).copy()
+    for m in (2, 4):
+        low += 2.0 * (co[:, m].real[:, None] * np.cos(m * phi_centers)[None, :]
+                      - co[:, m].imag[:, None] * np.sin(m * phi_centers)[None, :])
+    covered = s2d > 0
+    n_cov = covered.sum(axis=1)
+    fill = np.where(n_cov > 0, (s2d * covered).sum(axis=1) / np.maximum(n_cov, 1), 0.0)
+    return np.where(covered, s2d - low, fill[:, None] - low)  # column -> s2d, holes -> fill
+
+
 def refine_sigma(sigma_mass, obs_img, reconstruct_fn, r_grid, phi_centers,
                  z_grid, incl_deg, edges, *, iters=2, ratio_clip=3.0, n_los=281):
     """Iteratively correct sigma_mass (R,phi) so the reconstruction reprojects to obs_img.

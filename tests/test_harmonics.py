@@ -69,35 +69,43 @@ def test_reconstruct_density_conserving_clip_under_ringing():
 
 
 def test_reconstruct_density_sigma_hi_column_exact_and_mean_free():
-    # arms/odd-m content rides on the m=0 vertical profile; unclipped it must reproduce the
-    # full column density pointwise, and (clipped or not) leave the phi-mean pinned to a_0
+    # anchors + sigma_hi derived from ONE surface density with m=2 AND m=3 content must give
+    # back that surface density column-by-column (this catches phi-phase-convention mismatches
+    # between the rfft anchors and the cos/sin evaluation: a half-cell rotation of the m=2
+    # part breaks the identity wherever its gradient is strong); and under clipping the
+    # phi-mean must stay pinned to a_0
+    from dgdp.reproject import anchors_from_sigma, high_m_sigma
+
     r_grid = np.linspace(0.5, 20, 10)
     z_grid = np.linspace(-5, 5, 32)
-    phi = np.linspace(-np.pi, np.pi, 48, endpoint=False)
+    phi = np.linspace(-np.pi, np.pi, 48, endpoint=False) + np.pi / 48   # cell centres
     heights = np.geomspace(0.2, 3.5, 7)
     rk = {0: np.geomspace(0.12, 15, 12), 2: np.geomspace(0.12, 15, 8), 4: np.geomspace(0.12, 15, 6)}
     K = len(heights)
     vec = []
     for m in EVEN_M:
         w = np.zeros((1, len(rk[m]), K))
-        if m == 0:
-            w[..., 1] = 1.0                                   # thin-ish m=0 profile only
+        w[..., 1] = 1.0            # same kernel for every m -> columns positive => no clipping
         vec.append(w.reshape(1, -1))
         if m != 0:
             vec.append(np.zeros((1, len(rk[m]) * K)))
     vec = np.concatenate(vec, axis=1)
-    anchor = {0: np.ones((1, len(r_grid)), complex), 2: np.zeros((1, len(r_grid)), complex),
-              4: np.zeros((1, len(r_grid)), complex)}
     dz = z_grid[1] - z_grid[0]
+    area = np.ones(len(r_grid))
 
-    hi_mild = (0.3 * np.cos(3 * phi))[None, None, :] * np.ones((1, len(r_grid), 1))
+    s2d = (1.0 + 0.35 * np.cos(2 * phi + 0.4) + 0.25 * np.cos(3 * phi))[None, :] \
+        * np.ones((len(r_grid), 1))                           # mild -> no clipping anywhere
+    anchor = anchors_from_sigma(s2d, area)
+    hi = high_m_sigma(s2d, area, phi)
     rho = reconstruct_density(vec, anchor, rk, {m: K for m in EVEN_M}, heights,
-                              r_grid, z_grid, phi, sigma_hi=hi_mild)
+                              r_grid, z_grid, phi, sigma_hi=hi[None])
     col = rho[0].sum(axis=2) * dz                             # (nR, nphi) column density
-    np.testing.assert_allclose(col, 1.0 + hi_mild[0], rtol=1e-9, atol=1e-12)
+    np.testing.assert_allclose(col, s2d, rtol=1e-9, atol=1e-12)
 
+    flat = {0: np.ones((1, len(r_grid)), complex), 2: np.zeros((1, len(r_grid)), complex),
+            4: np.zeros((1, len(r_grid)), complex)}
     hi_strong = 1.5 * np.cos(7 * phi)[None, :] * np.ones((len(r_grid), 1))  # forces clipping
-    rho2 = reconstruct_density(vec, anchor, rk, {m: K for m in EVEN_M}, heights,
+    rho2 = reconstruct_density(vec, flat, rk, {m: K for m in EVEN_M}, heights,
                                r_grid, z_grid, phi, sigma_hi=hi_strong[None])
     assert np.all(rho2 >= 0)
     b = 1.0 / np.cosh(np.abs(z_grid) / (2 * heights[1])) ** 2 / (4 * heights[1])
