@@ -104,9 +104,13 @@ def geometric_baseline(gi: GalaxyImage, spec, *, scale_height_kpc, stellar_mass)
     ny, nx = gi.light.shape
     yy, xx = np.mgrid[0:ny, 0:nx]
     sel = gi.light > 2 * gi.bkg_std
-    x_sky = (xx[sel] - gi.cx) * gi.pix_kpc
-    y_sky = (yy[sel] - gi.cy) * gi.pix_kpc
-    mass = gi.light[sel].astype(float)
+    # 4x4 subpixel deposit: the inner log-R rings are narrower than a pixel, so point deposits
+    # there make the anchor harmonics phi-deltas (|2 Sigma_m|/Sigma_0 -> 2) and Sigma(R) a comb
+    off = (np.arange(4) + 0.5) / 4.0 - 0.5
+    ox, oy = np.meshgrid(off, off)
+    x_sky = ((xx[sel][:, None] + ox.ravel()).ravel() - gi.cx) * gi.pix_kpc
+    y_sky = ((yy[sel][:, None] + oy.ravel()).ravel() - gi.cy) * gi.pix_kpc
+    mass = np.repeat(gi.light[sel].astype(float) / 16.0, 16)
     cpa, spa = np.cos(gi.pa_pix), np.sin(gi.pa_pix)
     x_major = x_sky * cpa + y_sky * spa
     y_minor = -x_sky * spa + y_sky * cpa

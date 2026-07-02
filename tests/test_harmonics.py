@@ -37,3 +37,32 @@ def test_reconstruct_density_conserves_column():
     assert np.all(rho >= 0)
     col = rho[0].sum(axis=(1, 2)) * (z_grid[1] - z_grid[0])    # int over phi,z ~ nphi (flat anchor)
     assert np.allclose(col / col.mean(), 1.0, atol=1e-6)
+
+
+def test_reconstruct_density_conserving_clip_under_ringing():
+    # hostile anchors at the phi-delta limit (|2 Sigma_m|/Sigma_0 = 2) with a thin m=0 profile
+    # and tall m=2/4 profiles: truncated-Fourier ringing at high |z| must not rectify into mass,
+    # i.e. the phi-mean of the clipped density must still equal a_0(R,z) = Sigma_0 * q_0(z).
+    r_grid = np.linspace(0.5, 20, 16)
+    z_grid = np.linspace(-5, 5, 32)
+    phi = np.linspace(-np.pi, np.pi, 48, endpoint=False)
+    heights = np.geomspace(0.2, 3.5, 7)
+    rk = {0: np.geomspace(0.12, 15, 12), 2: np.geomspace(0.12, 15, 8), 4: np.geomspace(0.12, 15, 6)}
+    K = len(heights)
+    vec = []
+    for m in EVEN_M:
+        w = np.zeros((1, len(rk[m]), K))
+        w[..., 0 if m == 0 else K - 1] = 1.0                  # m=0 thin, m>0 tallest height
+        vec.append(w.reshape(1, -1))
+        if m != 0:
+            vec.append(np.zeros((1, len(rk[m]) * K)))
+    vec = np.concatenate(vec, axis=1)
+    ones = np.ones((1, len(r_grid)), complex)
+    rho = reconstruct_density(vec, {0: ones, 2: ones, 4: ones}, rk, {m: K for m in EVEN_M},
+                              heights, r_grid, z_grid, phi)
+    assert np.all(rho >= 0)
+    dz = z_grid[1] - z_grid[0]
+    thin = 1.0 / np.cosh(np.abs(z_grid) / (2 * heights[0])) ** 2 / (4 * heights[0])
+    a0 = thin / (thin.sum() * dz)                             # Sigma_0 = 1 -> a_0(z) = q_0(z)
+    np.testing.assert_allclose(rho.mean(axis=2)[0], np.broadcast_to(a0, (len(r_grid), len(z_grid))),
+                               rtol=1e-9, atol=1e-12)

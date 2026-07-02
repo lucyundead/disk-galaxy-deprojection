@@ -26,7 +26,11 @@ def reconstruct_density(vec_rows, anchor, rk_by_m, k_by_m, heights,
     """Predicted mixture weights -> q_m(z;R) -> anchor Sigma_m(R) -> cell DENSITY (rows,nR,nphi,nz).
 
     q is z-symmetric, >=0 (m=0), int q dz=1 by construction; linear R-interp preserves the unit
-    integral so anchoring by Sigma_m(R) conserves the column mass exactly. Clipped non-negative.
+    integral so anchoring by Sigma_m(R) conserves the column mass exactly. Clipped non-negative
+    with a mass-conserving rescale: on the uniform phi grid the signed series phi-means to
+    a_0(R,z) exactly, so scaling each (R,z) ring by a_0/mean(clipped) (a factor in [0,1])
+    removes precisely the clipping surplus -- truncated-Fourier ringing (e.g. around the
+    point-like central anchors) can no longer rectify into spurious high-|z| mass.
     """
     rows = vec_rows.shape[0]
     rho = np.zeros((rows, len(r_grid), len(phi_centers), len(z_grid)))
@@ -46,9 +50,13 @@ def reconstruct_density(vec_rows, anchor, rk_by_m, k_by_m, heights,
         q_grid = r_resample(q_rk, rk, r_grid)
         a_m = anchor[m][:, :, None] * q_grid
         if m == 0:
+            a0 = np.clip(a_m.real, 0.0, None)                  # (rows,nR,nz) phi-mean target
             rho += a_m.real[:, :, None, :]
         else:
             cos_m, sin_m = np.cos(m * phi_centers), np.sin(m * phi_centers)
             rho += 2.0 * (a_m.real[:, :, None, :] * cos_m[None, None, :, None]
                           - a_m.imag[:, :, None, :] * sin_m[None, None, :, None])
-    return np.clip(rho, 0.0, None)
+    rho = np.clip(rho, 0.0, None)
+    mean_clip = rho.mean(axis=2)
+    fac = np.divide(a0, mean_clip, out=np.zeros_like(mean_clip), where=mean_clip > 0)
+    return rho * fac[:, :, None, :]
