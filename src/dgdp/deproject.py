@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import os
+import warnings
 from dataclasses import dataclass
 from importlib.resources import files
 
@@ -49,6 +50,9 @@ class DeprojectionResult:
     #   state (axis 0 = minor axis) on edges_kpc bins -- a per-galaxy self-consistency check.
     _samples: dict | None = None                            # posterior-sampling context
     _ctx: dict | None = None                                # regrid context (native sig + model)
+    ood: dict | None = None                                 # training-distribution diagnostic
+    #   (dgdp.ood): d2 + empirical percentile among TNG training rows + nearest training
+    #   analogs (subhalo ids). None for custom bundles the shipped reference doesn't match.
 
     def regrid(self, *, n_r=None, n_phi=None, n_z=None, r_min=None, r_max=None,
                z_max=None) -> "DeprojectionResult":
@@ -249,6 +253,14 @@ def deproject(image, *, distance_mpc, inclination_deg, pa_pix_deg=None, pa_onsky
                          central_pixel_scale_kpc=m.central_pixel_scale_kpc)
     vec = m.predict_weights(feat)
 
+    from dgdp.ood import ood_check
+    ood = ood_check(feat, m.feat_mean, m.feat_scale)
+    if ood is not None and ood["percentile"] > 99.0:
+        warnings.warn(
+            f"input galaxy sits at the {ood['percentile']:.1f}th percentile of the TNG "
+            "training feature distribution -- the prediction is an extrapolation and the "
+            "uncertainty bands are not calibrated there", stacklevel=2)
+
     base_area = vol[:, 0, 0] / dz
 
     def _reconstruct(sig):
@@ -279,4 +291,4 @@ def deproject(image, *, distance_mpc, inclination_deg, pa_pix_deg=None, pa_onsky
            "k_by_m": m.k_by_m, "heights": m.heights, "grid": dict(g),
            "r_grid": r_grid, "phi_centers": phi, "r_edges_max": float(spec.r_edges_kpc[-1])}
     return DeprojectionResult(density, {"r": r_grid, "phi": phi, "z": z_grid},
-                              float(mass.sum()), relative, vol, reproj, samples, ctx)
+                              float(mass.sum()), relative, vol, reproj, samples, ctx, ood)

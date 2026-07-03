@@ -24,3 +24,5 @@ def test_ngc4321_end_to_end():
     assert 150.0 < vc.max() < 190.0                          # NGC4321 params -> peak ~155-180
     rms = r.rms_z(radii)
     assert rms[radii < 3].mean() > 0.6                       # thick/flaring, not the 0.3 baseline
+    assert r.ood is not None and 0.0 <= r.ood["percentile"] <= 100.0
+    assert len(r.ood["nearest_train_ids"]) == 5              # TNG analogs for a sanity look
