@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "disk-galaxy-deprojection"
-version = "0.4.1"
+version = "0.4.2"
 description = "Learned mass-conserving deprojection of galaxy images -> 3D stellar density, rotation curve, potential."
 readme = "README.md"
 requires-python = ">=3.11"
