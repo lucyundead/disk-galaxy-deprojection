@@ -102,6 +102,12 @@ def test_reconstruct_density_sigma_hi_column_exact_and_mean_free():
     col = rho[0].sum(axis=2) * dz                             # (nR, nphi) column density
     np.testing.assert_allclose(col, s2d, rtol=1e-9, atol=1e-12)
 
+    # the hi material rides on the TNG-squeezed profile: arm crests fit thinner than troughs
+    from dgdp.vertical_mixture import sech2_height_fit
+    j_hi, j_lo = int(np.argmax(hi[5])), int(np.argmin(hi[5]))
+    h_pair = sech2_height_fit(rho[0, 5, [j_hi, j_lo]], z_grid)
+    assert h_pair[0] < h_pair[1]
+
     flat = {0: np.ones((1, len(r_grid)), complex), 2: np.zeros((1, len(r_grid)), complex),
             4: np.zeros((1, len(r_grid)), complex)}
     hi_strong = 1.5 * np.cos(7 * phi)[None, :] * np.ones((len(r_grid), 1))  # forces clipping

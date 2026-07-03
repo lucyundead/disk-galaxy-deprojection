@@ -6,6 +6,10 @@ from dgdp import vertical_mixture as vm
 from dgdp.util import interp_matrix
 
 EVEN_M = (0, 2, 4)
+# TNG50-measured (185 training galaxies, scripts/measure_tng_high_m_vertical.py): genuine
+# arm/odd-m structure is ~15% thinner than the azimuthal-mean vertical profile, so the
+# m-not-in-{0,2,4} surface density rides on q_0 squeezed in z by this factor.
+HI_HEIGHT_RATIO = 0.854
 
 
 def harmonics(field: np.ndarray, dz: float):
@@ -22,7 +26,8 @@ def r_resample(cmap: np.ndarray, r_src: np.ndarray, r_dst: np.ndarray) -> np.nda
 
 
 def reconstruct_density(vec_rows, anchor, rk_by_m, k_by_m, heights,
-                        r_grid, z_grid, phi_centers, sigma_hi=None) -> np.ndarray:
+                        r_grid, z_grid, phi_centers, sigma_hi=None,
+                        hi_height_ratio=HI_HEIGHT_RATIO) -> np.ndarray:
     """Predicted mixture weights -> q_m(z;R) -> anchor Sigma_m(R) -> cell DENSITY (rows,nR,nphi,nz).
 
     q is z-symmetric, >=0 (m=0), int q dz=1 by construction; linear R-interp preserves the unit
@@ -34,8 +39,10 @@ def reconstruct_density(vec_rows, anchor, rk_by_m, k_by_m, heights,
 
     sigma_hi (rows,nR,nphi) [mass/kpc^2], optional: the m NOT in {0,2,4} content of the surface
     density (odd m, m>4 -- spiral arms, lopsidedness). It is added with the m=0 vertical profile
-    (arm material gets the local mean disk thickness). Being phi-mean-free per ring, it leaves
-    the a_0 conservation target -- and hence RMS|z|(R) and every ring mass -- exactly unchanged.
+    squeezed in z by hi_height_ratio (TNG50-measured: arm material is ~15% thinner than the
+    azimuthal mean; ratio 1.0 recovers "arms have the local mean disk thickness"). The squeezed
+    profile still integrates to 1 and sigma_hi is phi-mean-free per ring, so the a_0
+    conservation target -- and hence RMS|z|(R) and every ring mass -- stays exactly unchanged.
     """
     rows = vec_rows.shape[0]
     rho = np.zeros((rows, len(r_grid), len(phi_centers), len(z_grid)))
@@ -58,7 +65,9 @@ def reconstruct_density(vec_rows, anchor, rk_by_m, k_by_m, heights,
             a0 = np.clip(a_m.real, 0.0, None)                  # (rows,nR,nz) phi-mean target
             rho += a_m.real[:, :, None, :]
             if sigma_hi is not None:
-                rho += sigma_hi[:, :, :, None] * q_grid.real[:, :, None, :]
+                q_hi = r_resample(vm.reconstruct(w, z_grid, heights * hi_height_ratio),
+                                  rk, r_grid)
+                rho += sigma_hi[:, :, :, None] * q_hi.real[:, :, None, :]
         else:
             cos_m, sin_m = np.cos(m * phi_centers), np.sin(m * phi_centers)
             rho += 2.0 * (a_m.real[:, :, None, :] * cos_m[None, None, :, None]
