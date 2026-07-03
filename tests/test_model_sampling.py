@@ -61,6 +61,27 @@ def test_mixture_mean_and_sampling_math(tmp_path):
     assert abs(frac1 - pi[1]) < 0.08                        # mixture proportions respected
 
 
+def test_regrid_identity_and_refinement(tmp_path):
+    m, _ = _bundle(tmp_path / "det2.npz", with_scales=False,
+                   pca_vec=np.zeros((NPCA, TARGET)), pca_mean=np.full(TARGET, 0.5))
+    yy, xx = np.mgrid[0:64, 0:64]
+    img = 100.0 * np.exp(-np.hypot(xx - 32, yy - 32) / 8.0)
+    r = deproject(img, distance_mpc=15.0, inclination_deg=40.0, pa_pix_deg=0.0,
+                  center=(32, 32), pix_arcsec=1.0, stellar_mass=1e10, model=m,
+                  reproject_iters=0)
+    same = r.regrid()                                       # identity: same grid params
+    np.testing.assert_allclose(same.density_3d, r.density_3d, rtol=1e-8, atol=1e-12)
+
+    fine = r.regrid(n_r=32, n_phi=32, n_z=32)               # native synthetic grid is 16^3
+    assert fine.density_3d.shape == (32, 32, 32)
+    np.testing.assert_allclose(fine.total_mass, 1e10, rtol=1e-3)
+    radii = [1.0, 3.0]
+    np.testing.assert_allclose(fine.scale_height(radii), r.scale_height(radii), rtol=0.15)
+    np.testing.assert_allclose(fine.v_circ(radii), r.v_circ(radii), rtol=0.1)
+    finer = fine.regrid(n_z=64)                             # re-regrid uses the NATIVE context
+    np.testing.assert_allclose(finer.total_mass, 1e10, rtol=1e-3)
+
+
 def test_deproject_posterior_bands_plumbing(tmp_path):
     m, _ = _bundle(tmp_path / "det.npz", with_scales=True,
                    pca_vec=np.zeros((NPCA, TARGET)), pca_mean=np.full(TARGET, 0.5))

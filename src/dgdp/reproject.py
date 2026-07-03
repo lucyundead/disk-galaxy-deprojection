@@ -102,7 +102,9 @@ def high_m_sigma(sigma_mass, base_area, phi_centers):
     for m in (2, 4):
         low += 2.0 * (co[:, m].real[:, None] * np.cos(m * phi_centers)[None, :]
                       - co[:, m].imag[:, None] * np.sin(m * phi_centers)[None, :])
-    covered = s2d > 0
+    # relative floor, not >0: interpolated sigma fields (regrid) leak ~1e-15 of a neighbour
+    # into exact-zero cells, which must still count as holes
+    covered = s2d > 1e-9 * s2d.max(axis=1, keepdims=True)
     n_cov = covered.sum(axis=1)
     fill = np.where(n_cov > 0, (s2d * covered).sum(axis=1) / np.maximum(n_cov, 1), 0.0)
     return np.where(covered, s2d - low, fill[:, None] - low)  # column -> s2d, holes -> fill

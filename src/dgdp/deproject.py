@@ -48,6 +48,65 @@ class DeprojectionResult:
     #   correction; the result uses the best = min); ratio: sky-plane obs/model map at the best
     #   state (axis 0 = minor axis) on edges_kpc bins -- a per-galaxy self-consistency check.
     _samples: dict | None = None                            # posterior-sampling context
+    _ctx: dict | None = None                                # regrid context (native sig + model)
+
+    def regrid(self, *, n_r=None, n_phi=None, n_z=None, r_min=None, r_max=None,
+               z_max=None) -> "DeprojectionResult":
+        """Re-evaluate the deprojection on a finer cylindrical grid (e.g. for hydro ICs).
+
+        Not an interpolation of the coarse cube: the vertical mixture and the m<=4 azimuthal
+        terms are ANALYTIC and are evaluated exactly on the new grid; only the in-plane
+        surface density Sigma(R,phi) is bilinearly interpolated (in ln R and periodic phi)
+        from the native deposit grid, so no in-plane information beyond the native
+        resolution is invented. Mass conservation (per-ring anchoring + total) is re-imposed
+        on the new grid. Unspecified parameters keep the native values; regridding a
+        regridded result still interpolates from the ORIGINAL native grid (no compounding).
+        """
+        c = self._ctx
+        if c is None:
+            raise ValueError("no regrid context -- this result was not built by deproject()")
+        from dgdp.harmonics import reconstruct_density as _rec
+        from dgdp.reproject import anchors_from_sigma, high_m_sigma
+        g = c["grid"]
+        spec = make_cylindrical_grid_spec(
+            r_min_kpc=r_min if r_min is not None else g["r_min"],
+            r_max_kpc=r_max if r_max is not None else g["r_max"],
+            n_r=n_r if n_r is not None else g["n_r"],
+            n_phi=n_phi if n_phi is not None else g["n_phi"],
+            z_max_kpc=z_max if z_max is not None else g["z_max"],
+            n_z=n_z if n_z is not None else g["n_z"])
+        r_f = 0.5 * (spec.r_edges_kpc[:-1] + spec.r_edges_kpc[1:])
+        z_f = 0.5 * (spec.z_edges_kpc[:-1] + spec.z_edges_kpc[1:])
+        phi_f = 0.5 * (spec.phi_edges_rad[:-1] + spec.phi_edges_rad[1:])
+        vol_f = cylindrical_bin_volumes(spec).astype(float)
+        area_f = vol_f[:, 0, 0] / float(np.diff(spec.z_edges_kpc)[0])
+
+        # bilinear (ln R, periodic phi) interpolation of the native Sigma2D field
+        r_n, phi_n = c["r_grid"], c["phi_centers"]
+        s2d = c["sig"] / c["base_area"][:, None]
+        s2d_ext = np.concatenate([s2d, s2d[:, :1]], axis=1)
+        phi_ext = np.concatenate([phi_n, [phi_n[0] + 2 * np.pi]])
+        lr_n, lr_f = np.log(r_n), np.log(np.clip(r_f, r_n[0], r_n[-1]))
+        ir = np.clip(np.searchsorted(lr_n, lr_f) - 1, 0, len(lr_n) - 2)
+        fr = np.clip((lr_f - lr_n[ir]) / (lr_n[ir + 1] - lr_n[ir]), 0.0, 1.0)
+        pw = phi_ext[0] + np.mod(phi_f - phi_ext[0], 2 * np.pi)
+        ip = np.clip(np.searchsorted(phi_ext, pw) - 1, 0, len(phi_ext) - 2)
+        fp = np.clip((pw - phi_ext[ip]) / (phi_ext[ip + 1] - phi_ext[ip]), 0.0, 1.0)
+        s2d_f = (s2d_ext[np.ix_(ir, ip)] * (1 - fr)[:, None] * (1 - fp)[None, :]
+                 + s2d_ext[np.ix_(ir, ip + 1)] * (1 - fr)[:, None] * fp[None, :]
+                 + s2d_ext[np.ix_(ir + 1, ip)] * fr[:, None] * (1 - fp)[None, :]
+                 + s2d_ext[np.ix_(ir + 1, ip + 1)] * fr[:, None] * fp[None, :])
+        s2d_f[r_f > c["r_edges_max"]] = 0.0                  # never extrapolate beyond the data
+        sig_f = s2d_f * area_f[:, None]
+
+        rho = _rec(c["vec"], anchors_from_sigma(sig_f, area_f), c["rk_by_m"], c["k_by_m"],
+                   c["heights"], r_f, z_f, phi_f,
+                   sigma_hi=high_m_sigma(sig_f, area_f, phi_f)[None])[0]
+        mass = rho * vol_f
+        if not self.relative:
+            mass *= self.total_mass / max(mass.sum(), 1e-30)
+        return DeprojectionResult(mass / vol_f, {"r": r_f, "phi": phi_f, "z": z_f},
+                                  float(mass.sum()), self.relative, vol_f, None, None, c)
 
     def _sample_masses(self):
         """(S,nR,nphi,nz) mass grids reconstructed from the posterior weight draws (cached).
@@ -216,5 +275,8 @@ def deproject(image, *, distance_mpc, inclination_deg, pa_pix_deg=None, pa_onsky
         samples = {"weights": ws, "anchor": anchors_from_sigma(sig, base_area),
                    "sigma_hi": high_m_sigma(sig, base_area, phi)[None], "rk_by_m": m.rk_by_m,
                    "k_by_m": m.k_by_m, "heights": m.heights}
+    ctx = {"sig": sig, "base_area": base_area, "vec": vec, "rk_by_m": m.rk_by_m,
+           "k_by_m": m.k_by_m, "heights": m.heights, "grid": dict(g),
+           "r_grid": r_grid, "phi_centers": phi, "r_edges_max": float(spec.r_edges_kpc[-1])}
     return DeprojectionResult(density, {"r": r_grid, "phi": phi, "z": z_grid},
-                              float(mass.sum()), relative, vol, reproj, samples)
+                              float(mass.sum()), relative, vol, reproj, samples, ctx)

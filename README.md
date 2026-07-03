@@ -37,6 +37,8 @@ r.rms_z([1, 5, 10])       # RMS|z|(R) moment [kpc] (tail-weighted; h_z is the ob
 r.v_circ_samples([1, 5])  # same for the rotation curve
 r.reproj["history"]       # reprojection-consistency residual (see below)
 r.edge_on, r.face_on      # 2-D renderings
+r.regrid(n_r=256, n_phi=192, n_z=128)   # same model re-evaluated on a finer grid (hydro ICs:
+                          # vertical + m<=4 terms are analytic; only Sigma(R,phi) interpolates)
 r.save("out/")            # density.npz + rotation_curve.csv + deprojection.png
 ```
 
