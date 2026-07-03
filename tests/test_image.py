@@ -22,6 +22,23 @@ def test_geometric_baseline_mass_and_shape(tmp_path):
     assert base["baseline_density"].shape == (spec.r_edges_kpc.size - 1, 48, 32)
 
 
+def test_load_image_fills_masked_pixels(tmp_path):
+    # masked foreground stars must be filled from their surroundings, not read as zero
+    # flux (a zero there becomes a fake dip in the deprojected density)
+    ny = nx = 128
+    yy, xx = np.mgrid[0:ny, 0:nx]
+    data = 100.0 * np.exp(-np.hypot(xx - 64, yy - 64) / 20.0)
+    maskarr = np.zeros((ny, nx), np.float32)
+    maskarr[70:78, 50:58] = 1.0                              # a masked 'star' on the disk
+    fits.PrimaryHDU(data.astype(np.float32)).writeto(tmp_path / "d.fits")
+    fits.PrimaryHDU(maskarr).writeto(tmp_path / "m.fits")
+    gi = load_image(str(tmp_path / "d.fits"), pix_arcsec=1.0, pa_pix_deg=0.0,
+                    center=(64, 64), inclination_deg=0.0, distance_mpc=15.0,
+                    mask=str(tmp_path / "m.fits"))
+    ratio = gi.light[70:78, 50:58] / data[70:78, 50:58]
+    assert np.abs(ratio - 1.0).max() < 0.2                   # ~local values, not zeros
+
+
 def test_geometric_baseline_subpixel_deposit_spreads_central_pixel(tmp_path):
     # a pixel is wider than the inner log-R rings: depositing pixel CENTRES made the central
     # anchors phi-deltas (|2 Sigma_2|/Sigma_0 = 2) and Sigma(R) a comb of single-ring teeth

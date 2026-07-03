@@ -16,6 +16,34 @@ from dgdp.density3d import cylindrical_bin_volumes
 ARCSEC_PER_RAD = 206264.806
 
 
+def _fill_invalid(light, invalid, smooth_iters=40):
+    """Fill masked/NaN pixels with a smooth continuation of their surroundings.
+
+    March the valid boundary inward (each pass assigns the mean of already-valid
+    4-neighbours), then relax the filled region with Laplace passes (valid pixels held
+    fixed). Without this, masked foreground stars and mosaic gaps read as ZERO flux and
+    every mask becomes a fake dip in the deprojected density.
+    """
+    out = light.copy()
+    out[invalid] = 0.0
+    valid = ~invalid
+    while not valid.all():
+        p = np.pad(out * valid, 1)
+        c = np.pad(valid.astype(float), 1)
+        nb_sum = p[:-2, 1:-1] + p[2:, 1:-1] + p[1:-1, :-2] + p[1:-1, 2:]
+        nb_cnt = c[:-2, 1:-1] + c[2:, 1:-1] + c[1:-1, :-2] + c[1:-1, 2:]
+        frontier = ~valid & (nb_cnt > 0)
+        if not frontier.any():
+            break
+        out[frontier] = nb_sum[frontier] / nb_cnt[frontier]
+        valid |= frontier
+    for _ in range(int(smooth_iters)):
+        p = np.pad(out, 1, mode="edge")
+        nb = 0.25 * (p[:-2, 1:-1] + p[2:, 1:-1] + p[1:-1, :-2] + p[1:-1, 2:])
+        out[invalid] = nb[invalid]
+    return np.clip(out, 0.0, None)
+
+
 def _onsky_pa(wcs, cx, cy, pa_pix):
     c0 = wcs.pixel_to_world(cx, cy)
     c1 = wcs.pixel_to_world(cx + 50.0 * np.cos(pa_pix), cy + 50.0 * np.sin(pa_pix))
@@ -74,7 +102,10 @@ def load_image(source, *, distance_mpc, inclination_deg, pix_arcsec=None, pa_pix
 
     border = np.concatenate([data[0], data[-1], data[:, 0], data[:, -1]])
     bkg, bkg_std = float(np.nanmedian(border)), float(np.nanstd(border))
+    invalid = ~np.isfinite(data)                             # star masks + mosaic gaps
     light = np.clip(np.nan_to_num(data, nan=bkg) - bkg, 0.0, None)
+    if invalid.any():
+        light = _fill_invalid(light, invalid)
 
     ny, nx = light.shape
     yy, xx = np.mgrid[0:ny, 0:nx]
