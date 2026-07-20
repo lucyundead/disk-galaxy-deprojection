@@ -112,6 +112,78 @@ class DeprojectionResult:
         return DeprojectionResult(mass / vol_f, {"r": r_f, "phi": phi_f, "z": z_f},
                                   float(mass.sum()), self.relative, vol_f, None, None, c)
 
+    def bisymmetrize_for_dynamics(self, *, inner_radius_kpc: float,
+                                  outer_radius_kpc: float) -> "DeprojectionResult":
+        """Return a smooth, bisymmetric density derived for dynamical modelling.
+
+        The full 3D mass grid is truncated to ``m=0,2,4`` at every ``(R,z)``.
+        This removes high-order image texture and enforces exact 180-degree
+        symmetry.  A raised-cosine radial taper retains those modes inside
+        ``inner_radius_kpc`` and removes ``m=2,4`` at and beyond
+        ``outer_radius_kpc``, leaving an axisymmetric outer density.
+
+        Positivity is enforced by damping the retained non-axisymmetric modes
+        only where necessary.  Total mass and the azimuthally averaged ``(R,z)``
+        mass distribution are conserved.  The native result is not modified.
+        The returned object deliberately has no reprojection or posterior
+        context because this dynamics product is not an exact fit to the input
+        image; retain the native result as the projection-consistent
+        intermediate.
+        """
+        inner = float(inner_radius_kpc)
+        outer = float(outer_radius_kpc)
+        if not (np.isfinite(inner) and np.isfinite(outer) and 0.0 <= inner < outer):
+            raise ValueError("inner_radius_kpc must be finite, non-negative, and below outer_radius_kpc")
+        if self.density_3d.shape[1] % 2:
+            raise ValueError("bisymmetrize_for_dynamics requires an even number of azimuth bins")
+
+        mass = self.density_3d * self._vol
+        coeff = np.fft.rfft(mass, axis=1)
+        retained = np.zeros_like(coeff)
+        for mode in (0, 2, 4):
+            if mode < coeff.shape[1]:
+                retained[:, mode, :] = coeff[:, mode, :]
+        filtered = np.fft.irfft(retained, n=mass.shape[1], axis=1)
+
+        axisymmetric = filtered.mean(axis=1, keepdims=True)
+        nonaxisymmetric = filtered - axisymmetric
+        minimum_nonaxisymmetric = nonaxisymmetric.min(axis=1)
+        positivity_scale = np.ones_like(minimum_nonaxisymmetric)
+        needs_damping = minimum_nonaxisymmetric < 0.0
+        positivity_scale[needs_damping] = np.minimum(
+            1.0,
+            axisymmetric[:, 0, :][needs_damping] / -minimum_nonaxisymmetric[needs_damping],
+        ) * (1.0 - 32.0 * np.finfo(float).eps)
+        filtered = axisymmetric + positivity_scale[:, None, :] * nonaxisymmetric
+
+        radius = self.grid["r"]
+        taper = np.ones_like(radius)
+        transition = (radius > inner) & (radius < outer)
+        taper[radius >= outer] = 0.0
+        phase = (radius[transition] - inner) / (outer - inner)
+        taper[transition] = 0.5 * (1.0 + np.cos(np.pi * phase))
+        processed_mass = axisymmetric + taper[:, None, None] * (filtered - axisymmetric)
+
+        source_rz = mass.sum(axis=1)
+        processed_rz = processed_mass.sum(axis=1)
+        processed_mass *= np.divide(
+            source_rz,
+            processed_rz,
+            out=np.ones_like(source_rz),
+            where=processed_rz > 0.0,
+        )[:, None, :]
+        return DeprojectionResult(
+            processed_mass / self._vol,
+            dict(self.grid),
+            float(processed_mass.sum()),
+            self.relative,
+            self._vol,
+            None,
+            None,
+            None,
+            self.ood,
+        )
+
     def _sample_masses(self):
         """(S,nR,nphi,nz) mass grids reconstructed from the posterior weight draws (cached).
 

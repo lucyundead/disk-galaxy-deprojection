@@ -56,6 +56,12 @@ r.scale_height([1, 5, 10])      # sech^2 scale height h_z(R) [kpc]
 r.scale_height_samples([1, 5])  # posterior draws -> uncertainty bands
 r.edge_on, r.face_on            # 2-D renderings
 r.save("out/")                  # density.npz + rotation_curve.csv + deprojection.png
+
+# Dynamics-ready derivative: retain m=0,2,4 and taper the bar to an
+# axisymmetric outer density between 6 and 10 kpc.
+dyn = r.bisymmetrize_for_dynamics(inner_radius_kpc=6, outer_radius_kpc=10)
+dyn.save("out/dynamical/")
+dyn.potential([1, 2, 5, 10], [0, 0, 0, 0])  # optional AGAMA potential
 ```
 
 CLI:
@@ -63,7 +69,17 @@ CLI:
 ```bash
 dgdp-deproject galaxy.fits --distance-mpc 15.2 --inclination-deg 30 --pa-onsky-deg 153 \
     --ml 1.0 --stellar-mass 6e10 -o out/
+
+# Also write out/dynamical/{density.npz,rotation_curve.csv,potential.npz,postprocess.npz}.
+dgdp-deproject galaxy.fits --distance-mpc 15.2 --inclination-deg 30 --pa-onsky-deg 153 \
+    --ml 1.0 --stellar-mass 6e10 --dynamical-output 6 10 --potential -o out/
 ```
+
+The native density remains the image-reprojection-consistent inference. The optional
+``dynamical/`` product is a non-negative, exactly bisymmetric 3-D derivative: it removes
+all modes except ``m=0,2,4``, conserves the azimuthally averaged ``(R,z)`` mass, and tapers
+``m=2,4`` to zero over the requested radial interval. Its projected image is therefore a
+diagnostic rather than an exact reproduction of clumpy input structure.
 
 - **Geometry:** pass `pix_arcsec` + `pa_pix_deg` (+ `center`) to bypass WCS (e.g. an S4G
   cutout), or let a FITS WCS supply the pixel scale for an on-sky `pa_onsky_deg`.
